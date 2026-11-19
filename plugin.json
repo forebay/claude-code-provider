@@ -1,5 +1,4 @@
 {
-  "$schema": "https://weivel.github.io/model/plugin.schema.json",
   "id": "claude-code-provider",
   "api": 1,
   "version": "2.12.5",
