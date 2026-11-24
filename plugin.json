@@ -10,7 +10,9 @@
   "displayName": "Claude Code",
   "icon": "icon.svg",
   "capabilities": {
-    "provides": [],
+    "provides": [
+      "forebay.provider"
+    ],
     "consumes": []
   },
   "services": {
@@ -19,6 +21,7 @@
     ],
     "consumes": [
       "accounts",
+      "anthropic",
       "weivel.config",
       "weivel.secrets",
       "weivel.paths",

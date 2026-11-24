@@ -26,10 +26,10 @@ describe("isRateLimitStatus against the Java vectors", () => {
 
 describe("sendAttempt", () => {
   it("answers the response with its headers lower cased", async () => {
-    server.messagesResponder = () => ({ status: 429, body: {}, headers: { "Retry-After": "7", "content-type": "application/json" } });
+    server.messagesResponder = () => ({ status: 429, body: {}, headers: { "X-Request-Id": "7", "content-type": "application/json" } });
     const attempt = await sendAttempt(request(), new AbortController().signal);
     expect(attempt.kind).toBe("response");
-    expect(attempt.kind === "response" && attempt.headers["retry-after"]).toBe("7");
+    expect(attempt.kind === "response" && attempt.headers["x-request-id"]).toBe("7");
   });
 
   it("answers a transport failure when the connection is dropped", async () => {

@@ -5,7 +5,7 @@ import type { RunningHost } from "@weivel/typescript/program";
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 import type { AccountDependencies } from "../src/accounts/dependencies.js";
 import type { TextSecrets } from "../src/accounts/secrets.js";
-import type { Accounts, StoredAccount } from "../src/contract.js";
+import type { Accounts, Anthropic, IrRequest, Pair, StoredAccount } from "../src/contract.js";
 import { readSettings } from "../src/settings.js";
 import { bundled, homeWith, hostIn, realPlacesSnapshot, REPOSITORY, type Home, type Install } from "./fixtures/home.js";
 import { startOauthServer, type OauthServer } from "./fixtures/oauth-server.js";
@@ -49,7 +49,7 @@ export function fakeSecrets(): TextSecrets & { entries: Map<string, string> } {
   };
 }
 
-/** The install of the consumer fixture, which hands the test the real `accounts` service. */
+/** The install of the consumer fixture, which hands the test the real `accounts` and `anthropic` services and the provider calls. */
 export function consumerInstall(bundle: string): Install {
   const manifest = {
     api: 1,
@@ -57,16 +57,22 @@ export function consumerInstall(bundle: string): Install {
     id: "consumer",
     version: "1.0.0",
     entry: "index.js",
-    capabilities: { provides: [], consumes: [] },
-    services: { provides: ["consumer:accounts"], consumes: ["accounts"] },
+    capabilities: { provides: [], consumes: ["forebay.provider"] },
+    services: { provides: ["consumer:accounts", "consumer:anthropic", "consumer:calls"], consumes: ["accounts", "anthropic"] },
     config: { defaults: {} },
   };
   return { manifest, bundle, settings: {} };
 }
 
+/** forebay-library's `anthropic` service with the reading a test needs to make a request as a proxy hands it on. */
+export interface TestAnthropic extends Anthropic {
+  decode_request(input: { argument: { bytes: Uint8Array; headers: readonly Pair[] } }): Promise<{ request: IrRequest; forwarded_headers: readonly Pair[] }>;
+}
+
 export interface World {
   server: OauthServer;
   accounts: Accounts;
+  anthropic: TestAnthropic;
   store: string;
   secrets: ReturnType<typeof fakeSecrets>;
   settings: Record<string, unknown>;
@@ -103,7 +109,8 @@ export function useWorld(): () => World {
   });
   beforeEach(async () => {
     const accounts = host.service<Accounts>("consumer", "consumer:accounts");
-    if (accounts === undefined) throw new Error("the consumer registered no accounts service");
+    const anthropic = host.service<TestAnthropic>("consumer", "consumer:anthropic");
+    if (accounts === undefined || anthropic === undefined) throw new Error("the consumer registered no accounts or anthropic service");
     const server = await startOauthServer();
     folder = mkdtempSync(join(tmpdir(), "claude-code-provider-store-"));
     const store = join(folder, "accounts.json");
@@ -124,6 +131,7 @@ export function useWorld(): () => World {
     current = {
       server,
       accounts,
+      anthropic,
       store,
       secrets,
       settings,

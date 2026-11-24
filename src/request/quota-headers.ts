@@ -36,7 +36,7 @@ function isUsable(pool: QuotaPool): boolean {
  * weekly bucket and any the upstream adds later), by the header names rather than a fixed list.
  * A pool with neither a number for its utilization nor for its reset is dropped.
  *
- * @implNote The bucketless `anthropic-ratelimit-unified-reset` header times the lane and has no pool
+ * @implNote The bucketless unified reset header times the lane, which `anthropic` reads, and has no pool
  * component for the pattern to capture, so it never matches.
  */
 export function readPools(headers: Record<string, string>): Record<string, QuotaPool> {

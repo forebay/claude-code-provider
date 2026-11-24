@@ -19,6 +19,8 @@ export interface Reply {
   destroy?: boolean;
   /** Sends the status and the start of the body, then never finishes it. */
   stall?: boolean;
+  /** Sends the status and the whole `rawBody`, then keeps the response open until the client goes. */
+  holdOpen?: boolean;
   delayMilliseconds?: number;
 }
 
@@ -33,6 +35,8 @@ export interface OauthServer {
   messagesResponder: Responder;
   usageResponder: Responder;
   requestsTo(path: string): RecordedRequest[];
+  /** The requests whose client went away before their response was finished, in the order they went. */
+  abandoned: RecordedRequest[];
   close(): Promise<void>;
 }
 
@@ -77,6 +81,11 @@ function respond(outgoing: ServerResponse, reply: Reply): void {
     outgoing.write("{");
     return;
   }
+  if (reply.holdOpen === true) {
+    outgoing.writeHead(reply.status, reply.headers ?? { "content-type": "text/event-stream" });
+    outgoing.write(reply.rawBody ?? "");
+    return;
+  }
   const text = reply.rawBody ?? JSON.stringify(reply.body ?? {});
   outgoing.writeHead(reply.status, reply.headers ?? { "content-type": "application/json" });
   outgoing.end(text);
@@ -100,12 +109,16 @@ export async function startOauthServer(): Promise<OauthServer> {
     messagesResponder: () => ACCEPTED_MESSAGE,
     usageResponder: () => ({ status: 404 }),
     requestsTo: (path) => requests.filter((request) => request.path === path),
+    abandoned: [],
     close: () => Promise.resolve(),
   };
   const listener: Server = createServer(async (incoming, outgoing) => {
     const target = new URL(incoming.url ?? "/", "http://loopback");
     const recorded: RecordedRequest = { method: incoming.method ?? "GET", path: target.pathname, query: target.search, headers: incoming.headers, body: await bodyOf(incoming) };
     requests.push(recorded);
+    outgoing.once("close", () => {
+      if (!outgoing.writableFinished) state.abandoned.push(recorded);
+    });
     const reply = responderFor(state, target.pathname)(recorded);
     if (reply.delayMilliseconds !== undefined) await new Promise((resolve) => setTimeout(resolve, reply.delayMilliseconds));
     respond(outgoing, reply);
