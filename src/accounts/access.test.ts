@@ -59,10 +59,10 @@ describe("ensureAccess", () => {
     world().server.tokenResponder = () => ({ status: 400, body: { error: "invalid_grant" } });
     const access = createTokenAccess(world().dependencies);
     const { accounts, store } = world();
-    const first = await accounts.acquire({ argument: { store, lane: "messages", strategy: 1, now: NOW } });
+    const first = await accounts.acquire({ argument: { store, lane: "messages", strategy: world().enums.accounts.forebay_accounts_strategy.FOREBAY_ACCOUNTS_STICKY, now: NOW } });
     expect(first.id).toBe("a");
     expect(await access.ensureAccess("a", NOW, NEVER_ABORTED)).toMatchObject({ none: true });
-    const next = await accounts.acquire({ argument: { store, lane: "messages", strategy: 1, now: NOW } });
+    const next = await accounts.acquire({ argument: { store, lane: "messages", strategy: world().enums.accounts.forebay_accounts_strategy.FOREBAY_ACCOUNTS_STICKY, now: NOW } });
     expect(next.id).toBe("b");
     expect(await access.ensureAccess("b", NOW, NEVER_ABORTED)).toEqual({ access: "stored-access-b" });
     expect(world().server.requestsTo("/v1/oauth/token")).toHaveLength(1);
@@ -154,7 +154,7 @@ describe("ensureAccess under failure", () => {
 
   it("leaves a rate limit cooldown untouched and the account unused after a good refresh", async () => {
     await seedAccount(world(), "a", NOW - 1);
-    const argument = { store: world().store, id: "a", outcome: 2, now: NOW, has_reset_at: 1, reset_at: NOW + 600_000, has_random: 0, random: 0, attempt: 0, base_milliseconds: 0, max_milliseconds: 0 };
+    const argument = { store: world().store, id: "a", outcome: world().enums.accounts.forebay_accounts_report_outcome.FOREBAY_ACCOUNTS_RATE_LIMITED, now: NOW, has_reset_at: 1, reset_at: NOW + 600_000, has_random: 0, random: 0, attempt: 0, base_milliseconds: 0, max_milliseconds: 0 };
     await world().accounts.report({ argument });
     const before = (await world().storedAccount("a")) as Record<string, unknown> | undefined;
     expect(before?.coolingDownUntil).toBe(NOW + 600_000);

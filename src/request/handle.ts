@@ -1,8 +1,8 @@
 import type { AccessAnswer, TokenAccess } from "../accounts/access.js";
-import { messageOf } from "../accounts/dependencies.js";
+import { messageOf, outcomesOf } from "../accounts/dependencies.js";
 import type { AccountDependencies } from "../accounts/dependencies.js";
 import { INFERENCE_SCOPE_REASON, MESSAGES_LANE } from "../constants.js";
-import { ACQUIRE, HANDLE, REPLY_KIND, REPORT_OUTCOME, type AcquireAnswer, type Anthropic, type HandleAnswer, type HandleArgument, type IrFailure, type Pair } from "../contract.js";
+import type { AcquireAnswer, Anthropic, HandleAnswer, HandleArgument, IrFailure, Pair } from "../contract.js";
 import { isRateLimitStatus, sendAttempt, type Attempt } from "./attempt.js";
 import { captureQuota } from "./capture-quota.js";
 import { reportAttempt } from "./report.js";
@@ -29,13 +29,13 @@ function pairsOf(headers: Record<string, string>): Pair[] {
   return Object.entries(headers).map(([name, value]) => ({ name, value }));
 }
 
-function failed(failure: IrFailure): HandleAnswer {
-  return { kind: HANDLE.FAILURE, failure };
+function failed(dependencies: RequestDependencies, failure: IrFailure): HandleAnswer {
+  return { kind: dependencies.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_FAILURE, failure };
 }
 
 /** A failure this plugin words itself, as an Anthropic error body `anthropic` writes, waiting `retryAfter` when known. */
 async function ownFailure(dependencies: RequestDependencies, status: number, message: string, retryAfter?: number): Promise<IrFailure> {
-  const body = await dependencies.anthropic.error_envelope({ argument: { reply_kind: REPLY_KIND.PROVIDER_FAILURE, message } });
+  const body = await dependencies.anthropic.error_envelope({ argument: { reply_kind: dependencies.enums.anthropic.forebay_reply_kind.FOREBAY_REPLY_PROVIDER_FAILURE, message } });
   const retry = retryAfter === undefined ? { has_retry_after: 0, retry_after_milliseconds: 0 } : { has_retry_after: 1, retry_after_milliseconds: Math.max(0, retryAfter) };
   return { status, headers: body.headers, body: new TextDecoder().decode(body.bytes), ...retry };
 }
@@ -59,21 +59,21 @@ async function decoded(dependencies: RequestDependencies, received: Received, up
   const { response } = received;
   if (response.headers.get("content-type")?.includes(EVENT_STREAM) === true && response.body !== null) {
     const decoder = await dependencies.anthropic.stream_decoder_open({});
-    return { kind: HANDLE.STREAM, stream: new UpstreamStream(dependencies.anthropic, decoder, response.body as ReadableStream<Uint8Array>, upstream) };
+    return { kind: dependencies.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_STREAM, stream: new UpstreamStream(dependencies.anthropic, dependencies.enums.provider, decoder, response.body as ReadableStream<Uint8Array>, upstream) };
   }
   const bytes = new Uint8Array(await response.arrayBuffer());
   try {
-    return { kind: HANDLE.RESPONSE, response: (await dependencies.anthropic.decode_response({ argument: { bytes, headers: [] } })).response };
+    return { kind: dependencies.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_RESPONSE, response: (await dependencies.anthropic.decode_response({ argument: { bytes, headers: [] } })).response };
   } catch {
-    return failed(await ownFailure(dependencies, BAD_GATEWAY_STATUS, "the upstream answered a body that is not a message"));
+    return failed(dependencies, await ownFailure(dependencies, BAD_GATEWAY_STATUS, "the upstream answered a body that is not a message"));
   }
 }
 
 async function unavailable(dependencies: RequestDependencies, acquired: AcquireAnswer): Promise<HandleAnswer> {
   const now = dependencies.clock();
   const retryAfter = acquired.knows_available_at === 1 ? acquired.available_at - now : undefined;
-  if (acquired.kind === ACQUIRE.CLAIMED) return failed(await ownFailure(dependencies, UNAVAILABLE_STATUS, ALL_COOLING_MESSAGE, retryAfter));
-  return failed(await ownFailure(dependencies, UNAVAILABLE_STATUS, retryAfter === undefined ? NO_ACCOUNT_MESSAGE : ALL_COOLING_MESSAGE, retryAfter));
+  if (acquired.kind === dependencies.enums.accounts.forebay_accounts_acquire_kind.FOREBAY_ACCOUNTS_CLAIMED) return failed(dependencies, await ownFailure(dependencies, UNAVAILABLE_STATUS, ALL_COOLING_MESSAGE, retryAfter));
+  return failed(dependencies, await ownFailure(dependencies, UNAVAILABLE_STATUS, retryAfter === undefined ? NO_ACCOUNT_MESSAGE : ALL_COOLING_MESSAGE, retryAfter));
 }
 
 /**
@@ -101,36 +101,36 @@ export function createHandle(dependencies: RequestDependencies, access: TokenAcc
     await captureQuota(dependencies, id, received.headers);
     if (isRateLimitStatus(status)) {
       const { failure, resetAt } = await upstreamFailure(dependencies, received);
-      await reportAttempt(dependencies, id, resetAt === undefined ? { outcome: REPORT_OUTCOME.RATE_LIMITED, attempt: attemptNumber } : { outcome: REPORT_OUTCOME.RATE_LIMITED, resetAt });
+      await reportAttempt(dependencies, id, resetAt === undefined ? { outcome: outcomesOf(dependencies).FOREBAY_ACCOUNTS_RATE_LIMITED, attempt: attemptNumber } : { outcome: outcomesOf(dependencies).FOREBAY_ACCOUNTS_RATE_LIMITED, resetAt });
       return { rotated: failure };
     }
     if (status === 401) {
-      await reportAttempt(dependencies, id, { outcome: REPORT_OUTCOME.ERROR, attempt: attemptNumber, reason: "401 unauthorized" });
+      await reportAttempt(dependencies, id, { outcome: outcomesOf(dependencies).FOREBAY_ACCOUNTS_ERROR, attempt: attemptNumber, reason: "401 unauthorized" });
       return { rotated: (await upstreamFailure(dependencies, received)).failure };
     }
     if (status === 403) {
-      await reportAttempt(dependencies, id, { outcome: REPORT_OUTCOME.DISABLED, reason: INFERENCE_SCOPE_REASON });
+      await reportAttempt(dependencies, id, { outcome: outcomesOf(dependencies).FOREBAY_ACCOUNTS_DISABLED, reason: INFERENCE_SCOPE_REASON });
       return { rotated: (await upstreamFailure(dependencies, received)).failure };
     }
-    if (!received.response.ok) return { answer: failed((await upstreamFailure(dependencies, received)).failure) };
-    await reportAttempt(dependencies, id, { outcome: REPORT_OUTCOME.SUCCESS });
+    if (!received.response.ok) return { answer: failed(dependencies, (await upstreamFailure(dependencies, received)).failure) };
+    await reportAttempt(dependencies, id, { outcome: outcomesOf(dependencies).FOREBAY_ACCOUNTS_SUCCESS });
     return { answer: await decoded(dependencies, received, upstream) };
   }
 
   async function turn(argument: HandleArgument, upstream: AbortController, attemptNumber: number): Promise<Turn> {
     const settings = await dependencies.settings();
     const acquired = await dependencies.accounts.acquire({ argument: { store: dependencies.store, lane: MESSAGES_LANE, strategy: settings.strategy, now: dependencies.clock() } });
-    if (acquired.kind !== ACQUIRE.CLAIMED || acquired.id === undefined || acquired.available !== 1) return { answer: await unavailable(dependencies, acquired) };
+    if (acquired.kind !== dependencies.enums.accounts.forebay_accounts_acquire_kind.FOREBAY_ACCOUNTS_CLAIMED || acquired.id === undefined || acquired.available !== 1) return { answer: await unavailable(dependencies, acquired) };
     const id = acquired.id;
     const token = await ensured(id, upstream.signal);
     if ("none" in token) {
-      await reportAttempt(dependencies, id, { outcome: REPORT_OUTCOME.ERROR, attempt: attemptNumber, reason: token.reason });
+      await reportAttempt(dependencies, id, { outcome: outcomesOf(dependencies).FOREBAY_ACCOUNTS_ERROR, attempt: attemptNumber, reason: token.reason });
       return { rotated: undefined };
     }
-    const request = await rewrite(dependencies.anthropic, argument.request, argument.headers, token.access, settings.apiBase);
+    const request = await rewrite(dependencies.anthropic, dependencies.enums.provider.forebay_ir_block_kind, argument.request, argument.headers, token.access, settings.apiBase);
     const attempt = await sendAttempt(request, upstream.signal);
     if (attempt.kind === "transport-failed") {
-      await reportAttempt(dependencies, id, { outcome: REPORT_OUTCOME.ERROR, attempt: attemptNumber, reason: "transport failed" });
+      await reportAttempt(dependencies, id, { outcome: outcomesOf(dependencies).FOREBAY_ACCOUNTS_ERROR, attempt: attemptNumber, reason: "transport failed" });
       return { rotated: undefined };
     }
     return afterResponse(id, attemptNumber, attempt, upstream);
@@ -145,15 +145,15 @@ export function createHandle(dependencies: RequestDependencies, access: TokenAcc
       if ("answer" in result) return result.answer;
       last = result.rotated ?? last;
     }
-    return failed(last ?? (await ownFailure(dependencies, BAD_GATEWAY_STATUS, `Claude request failed after ${turns} attempts`)));
+    return failed(dependencies, last ?? (await ownFailure(dependencies, BAD_GATEWAY_STATUS, `Claude request failed after ${turns} attempts`)));
   }
 
   return async (argument, upstream) => {
     try {
       return await served(argument, upstream);
     } catch (cause) {
-      if (upstream.signal.aborted) return { kind: HANDLE.THROWN, message: "claude-code-provider's call was cancelled before it was served" };
-      return { kind: HANDLE.THROWN, message: `claude-code-provider could not serve the request: ${messageOf(cause)}` };
+      if (upstream.signal.aborted) return { kind: dependencies.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_THROWN, message: "claude-code-provider's call was cancelled before it was served" };
+      return { kind: dependencies.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_THROWN, message: `claude-code-provider could not serve the request: ${messageOf(cause)}` };
     }
   };
 }

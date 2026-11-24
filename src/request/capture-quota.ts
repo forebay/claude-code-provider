@@ -1,6 +1,5 @@
-import { findAccount, logIfFailed } from "../accounts/dependencies.js";
+import { findAccount, logIfFailed, outcomesOf } from "../accounts/dependencies.js";
 import type { AccountDependencies } from "../accounts/dependencies.js";
-import { REPORT_OUTCOME } from "../contract.js";
 import { readPools } from "./quota-headers.js";
 import type { QuotaPool, StoredQuota } from "./quota-headers.js";
 import { reportAttempt } from "./report.js";
@@ -19,6 +18,6 @@ export async function captureQuota(dependencies: AccountDependencies, id: string
   if (Object.keys(found).length === 0) return;
   await logIfFailed(dependencies, `could not capture the quota of ${id}`, async () => {
     const stored = (await findAccount(dependencies, id))?.quota as StoredQuota | undefined;
-    await reportAttempt(dependencies, id, { outcome: REPORT_OUTCOME.QUOTA, quota: { pools: mergedPools(stored, found), at: dependencies.clock() } });
+    await reportAttempt(dependencies, id, { outcome: outcomesOf(dependencies).FOREBAY_ACCOUNTS_QUOTA, quota: { pools: mergedPools(stored, found), at: dependencies.clock() } });
   });
 }

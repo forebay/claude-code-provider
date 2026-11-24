@@ -95,7 +95,7 @@ describe("the login action", () => {
 
   it("signs the same account in again as an update, re-enabling it", async () => {
     await createLoginAction(world().dependencies)({ code: await pastedCode() });
-    const disabling = { store: world().store, id: "me@example.com", outcome: 4, now: NOW, reason: "re-login required", has_reset_at: 0, reset_at: 0, has_random: 0, random: 0, attempt: 0, base_milliseconds: 0, max_milliseconds: 0 };
+    const disabling = { store: world().store, id: "me@example.com", outcome: world().enums.accounts.forebay_accounts_report_outcome.FOREBAY_ACCOUNTS_DISABLED, now: NOW, reason: "re-login required", has_reset_at: 0, reset_at: 0, has_random: 0, random: 0, attempt: 0, base_milliseconds: 0, max_milliseconds: 0 };
     await world().accounts.report({ argument: disabling });
     world().at(NOW + 5_000);
     const answer = await createLoginAction(world().dependencies)({ code: await pastedCode() });

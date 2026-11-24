@@ -59,13 +59,21 @@ export interface Stream {
   release(): void;
 }
 
-export type HandleAnswer =
-  | { readonly kind: 1; readonly response: unknown }
-  | { readonly kind: 2; readonly failure: IrFailure }
-  | { readonly kind: 3; readonly stream: Stream }
-  | { readonly kind: 4; readonly message: string };
+/** What `handle` answers: a forebay_provider_handle_kind, and the member that kind carries. */
+export interface HandleAnswer {
+  readonly kind: number;
+  readonly response?: unknown;
+  readonly failure?: IrFailure;
+  readonly stream?: Stream;
+  readonly message?: string;
+}
 
-export type NextAnswer = { readonly kind: 1; readonly event: unknown } | { readonly kind: 2 } | { readonly kind: 3; readonly failure: string };
+/** What `next` answers: a forebay_provider_next_kind, and the member that kind carries. */
+export interface NextAnswer {
+  readonly kind: number;
+  readonly event?: unknown;
+  readonly failure?: string;
+}
 
 /** A call's token; a uint64 out of C may arrive as a number or as a bigint. */
 export type Token = bigint | number;
@@ -170,20 +178,36 @@ export interface Log {
   write(input: { level: number; message: string }): Promise<void>;
 }
 
-export const HANDLE = { RESPONSE: 1, FAILURE: 2, STREAM: 3, THROWN: 4 } as const;
+type Entries<Name extends string> = Readonly<Record<Name, number>>;
 
-export const NEXT = { EVENT: 1, END: 2, FAILURE: 3 } as const;
+/**
+ * The enums this plugin reads, by the names forebay-library's and the standard's headers spell them. Only the names
+ * are written here: the numbers are the descriptions', which the plugin's context answers.
+ */
+export interface ProviderEnums {
+  readonly forebay_provider_handle_kind: Entries<"FOREBAY_PROVIDER_HANDLE_RESPONSE" | "FOREBAY_PROVIDER_HANDLE_FAILURE" | "FOREBAY_PROVIDER_HANDLE_STREAM" | "FOREBAY_PROVIDER_HANDLE_THROWN">;
+  readonly forebay_provider_next_kind: Entries<"FOREBAY_PROVIDER_NEXT_EVENT" | "FOREBAY_PROVIDER_NEXT_END" | "FOREBAY_PROVIDER_NEXT_FAILURE">;
+  readonly forebay_ir_block_kind: Entries<"FOREBAY_IR_BLOCK_TEXT">;
+}
 
-export const IR_BLOCK_TEXT = 1;
+export interface AnthropicEnums {
+  readonly forebay_reply_kind: Entries<"FOREBAY_REPLY_PROVIDER_FAILURE">;
+}
 
-export const REPLY_KIND = { PROVIDER_FAILURE: 3 } as const;
+export interface AccountsEnums {
+  readonly forebay_accounts_acquire_kind: Entries<"FOREBAY_ACCOUNTS_CLAIMED">;
+  readonly forebay_accounts_strategy: Entries<"FOREBAY_ACCOUNTS_STICKY" | "FOREBAY_ACCOUNTS_ROUND_ROBIN" | "FOREBAY_ACCOUNTS_HYBRID">;
+  readonly forebay_accounts_report_outcome: Entries<"FOREBAY_ACCOUNTS_SUCCESS" | "FOREBAY_ACCOUNTS_RATE_LIMITED" | "FOREBAY_ACCOUNTS_ERROR" | "FOREBAY_ACCOUNTS_DISABLED" | "FOREBAY_ACCOUNTS_QUOTA">;
+  readonly forebay_accounts_upsert_outcome: Entries<"FOREBAY_ACCOUNTS_ADDED" | "FOREBAY_ACCOUNTS_UNCHANGED" | "FOREBAY_ACCOUNTS_UPDATED">;
+}
 
-export const ACQUIRE = { CLAIMED: 1, NONE: 2 } as const;
+export interface LogEnums {
+  readonly weivel_standard_log_level: Entries<"WEIVEL_STANDARD_LOG_WARN">;
+}
 
-export const STRATEGY = { STICKY: 1, ROUND_ROBIN: 2, HYBRID: 3 } as const;
-
-export const REPORT_OUTCOME = { SUCCESS: 1, RATE_LIMITED: 2, ERROR: 3, DISABLED: 4, QUOTA: 5 } as const;
-
-export const UPSERT_OUTCOME = { ADDED: 1, UNCHANGED: 2, UPDATED: 3 } as const;
-
-export const WEIVEL_LOG = { INFO: 3, WARN: 4 } as const;
+/** Each enum serving a request reads, by the definition or contract whose description carries it. */
+export interface Enums {
+  readonly provider: ProviderEnums;
+  readonly anthropic: AnthropicEnums;
+  readonly accounts: AccountsEnums;
+}

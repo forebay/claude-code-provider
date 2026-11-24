@@ -1,8 +1,8 @@
 interface Context {
   service(id: string): unknown;
   capability(id: string): unknown;
-  readonly capabilities: { all(capability: unknown): unknown[] };
-  readonly services: { get(service: unknown): object | undefined; register(service: unknown, object: object): unknown };
+  readonly capabilities: { all(capability: unknown): unknown[]; enumsOf(capability: unknown): object | undefined };
+  readonly services: { get(service: unknown): object | undefined; register(service: unknown, object: object): unknown; enumsOf(service: unknown): object | undefined };
 }
 
 interface Provider {
@@ -21,13 +21,20 @@ function required(context: Context, id: string): object {
 
 /**
  * A plugin that hands the test forebay-library's `accounts` and `anthropic` services, through `consumer:accounts` and
- * `consumer:anthropic`, and every call of the `forebay.provider` contract through `consumer:calls`, so a test calls
+ * `consumer:anthropic`, the enums their descriptions and the contract's carry, through `consumer:enums`, and every call of the `forebay.provider` contract through `consumer:calls`, so a test calls
  * the real C operations and the provider as a proxy does, through the capability the host verified.
  */
 export default {
   activate(context: Context): void {
-    context.services.register(context.service("consumer:accounts"), required(context, "accounts"));
-    context.services.register(context.service("consumer:anthropic"), required(context, "anthropic"));
+    const accounts = required(context, "accounts");
+    const anthropic = required(context, "anthropic");
+    context.services.register(context.service("consumer:accounts"), accounts);
+    context.services.register(context.service("consumer:anthropic"), anthropic);
+    context.services.register(context.service("consumer:enums"), {
+      accounts: context.services.enumsOf(accounts),
+      anthropic: context.services.enumsOf(anthropic),
+      provider: context.capabilities.enumsOf(context.capability("forebay.provider")),
+    });
     const providers = (): Provider[] => context.capabilities.all(context.capability("forebay.provider")) as Provider[];
     const only = (): Provider => {
       const all = providers();

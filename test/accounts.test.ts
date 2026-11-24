@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunningHost } from "@weivel/typescript/program";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { Accounts } from "../src/contract.js";
+import type { Accounts, Enums } from "../src/contract.js";
 import { bundled, homeWith, hostIn, providerInstall, realPlacesSnapshot, REPOSITORY, type Home } from "./fixtures/home.js";
 import { GRANTED_TOKENS, startOauthServer, successfulGrants, type OauthServer, type RecordedRequest, type Reply } from "./fixtures/oauth-server.js";
 import { consumerInstall, RUN_BOUND, settingsFor } from "./world.js";
@@ -44,6 +44,12 @@ function actionsOf(host: RunningHost): Actions {
   const actions = host.service<Actions>(PROVIDER, ACTIONS);
   if (actions === undefined) throw new Error("claude-code-provider registered no accounts service");
   return actions;
+}
+
+function enumsOf(host: RunningHost): Enums {
+  const enums = host.service<Enums>("consumer", "consumer:enums");
+  if (enums === undefined) throw new Error("the consumer registered no enums service");
+  return enums;
 }
 
 function accountsOf(host: RunningHost): Accounts {
@@ -137,11 +143,11 @@ describe("claude-code-provider's accounts under the host program, over runtime i
     server.tokenResponder = () => ({ status: 400, body: { error: "invalid_grant" } });
 
     const refreshed = await actions.refresh({ item: first });
-    const acquired = await accountsOf(host).acquire({ argument: { store: storeIn(made), lane: "messages", strategy: 1, now: Date.now() } });
+    const acquired = await accountsOf(host).acquire({ argument: { store: storeIn(made), lane: "messages", strategy: enumsOf(host).accounts.forebay_accounts_strategy.FOREBAY_ACCOUNTS_STICKY, now: Date.now() } });
 
     expect(refreshed.results).toEqual([{ id: first, refreshed: false, reason: "re-login required" }]);
     expect((await actions.list()).accounts).toMatchObject([{ id: first, enabled: false, disabledReason: "re-login required" }, { id: second, enabled: true }]);
-    expect(acquired).toMatchObject({ kind: 1, id: second, available: 1 });
+    expect(acquired).toMatchObject({ kind: enumsOf(host).accounts.forebay_accounts_acquire_kind.FOREBAY_ACCOUNTS_CLAIMED, id: second, available: 1 });
   }, RUN_BOUND);
 
   it("removes an account with its tokens", async () => {

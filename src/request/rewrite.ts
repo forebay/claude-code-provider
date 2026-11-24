@@ -1,19 +1,21 @@
 import { ANTHROPIC_OAUTH_BETA, ANTHROPIC_VERSION, CLAUDE_CODE_SYSTEM } from "../constants.js";
-import { IR_BLOCK_TEXT, type Anthropic, type IrBlock, type IrRequest, type Pair } from "../contract.js";
+import type { Anthropic, IrBlock, IrRequest, Pair, ProviderEnums } from "../contract.js";
 import type { UpstreamRequest } from "./attempt.js";
 
 const MESSAGES_PATH = "/v1/messages";
 /** The request extension that makes `anthropic` write a lone text system block back as a bare string. */
 const SYSTEM_IS_STRING = "$systemIsString";
 
-function isIdentity(block: IrBlock | undefined): boolean {
-  return block?.kind === IR_BLOCK_TEXT && block.text === CLAUDE_CODE_SYSTEM;
+type BlockKinds = ProviderEnums["forebay_ir_block_kind"];
+
+function isIdentity(block: IrBlock | undefined, kinds: BlockKinds): boolean {
+  return block?.kind === kinds.FOREBAY_IR_BLOCK_TEXT && block.text === CLAUDE_CODE_SYSTEM;
 }
 
 /** The system blocks led by the Claude Code identity block exactly once; a block already leading is kept as it is. */
-export function withIdentityBlock(system: readonly IrBlock[] | undefined): readonly IrBlock[] {
+export function withIdentityBlock(system: readonly IrBlock[] | undefined, kinds: BlockKinds): readonly IrBlock[] {
   const blocks = system ?? [];
-  return isIdentity(blocks[0]) ? blocks : [{ kind: IR_BLOCK_TEXT, text: CLAUDE_CODE_SYSTEM }, ...blocks];
+  return isIdentity(blocks[0], kinds) ? blocks : [{ kind: kinds.FOREBAY_IR_BLOCK_TEXT, text: CLAUDE_CODE_SYSTEM }, ...blocks];
 }
 
 /**
@@ -22,9 +24,9 @@ export function withIdentityBlock(system: readonly IrBlock[] | undefined): reado
  * @implNote The upstream does not accept the identity as a bare string, so the note that the client sent its system as
  * one is dropped.
  */
-export function withIdentity(request: IrRequest): IrRequest {
+export function withIdentity(request: IrRequest, kinds: BlockKinds): IrRequest {
   const { [SYSTEM_IS_STRING]: _dropped, ...extensions } = request.extensions ?? {};
-  return { ...request, has_system: 1, system: withIdentityBlock(request.has_system === 1 ? request.system : undefined), extensions };
+  return { ...request, has_system: 1, system: withIdentityBlock(request.has_system === 1 ? request.system : undefined, kinds), extensions };
 }
 
 /**
@@ -46,8 +48,8 @@ function clientHeaders(headers: readonly Pair[]): Record<string, string> {
  * the identity block, and the client's forwarded headers with the Bearer token added, its `anthropic-version` kept
  * else the default, and the OAuth beta merged in.
  */
-export async function rewrite(anthropic: Anthropic, request: IrRequest, headers: readonly Pair[], access: string, apiBase: string): Promise<UpstreamRequest> {
-  const body = await anthropic.encode_request({ argument: { request: withIdentity(request) } });
+export async function rewrite(anthropic: Anthropic, kinds: BlockKinds, request: IrRequest, headers: readonly Pair[], access: string, apiBase: string): Promise<UpstreamRequest> {
+  const body = await anthropic.encode_request({ argument: { request: withIdentity(request, kinds) } });
   const client = clientHeaders(headers);
   return {
     url: `${apiBase}${MESSAGES_PATH}`,

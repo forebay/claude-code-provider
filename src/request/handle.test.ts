@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createTokenAccess } from "../accounts/access.js";
-import type { HandleAnswer } from "../contract.js";
+import type { HandleAnswer, IrRequest } from "../contract.js";
 import { accountsWith, NOW, RUN_BOUND, seedAccount, useWorld, type World } from "../../test/world.js";
 import type { Reply } from "../../test/fixtures/oauth-server.js";
 import { createHandle } from "./handle.js";
@@ -9,7 +9,6 @@ const world = useWorld();
 const HOUR = 3_600_000;
 const RESET_SECONDS = String(NOW / 1000 + 600);
 const MESSAGE = { id: "msg_1", type: "message", role: "assistant", content: [{ type: "text", text: "hi" }], model: "claude-sonnet-4", stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } };
-const REQUEST = { model: "claude-sonnet-4", messages: [{ role: "user", content: [{ kind: 1, text: "hi" }] }], stream: 0 };
 
 const ok = (headers: Record<string, string> = {}): Reply => ({ status: 200, rawBody: JSON.stringify(MESSAGE), headers: { "content-type": "application/json", ...headers } });
 const rateLimited = (status: number, headers: Record<string, string> = {}): Reply => ({ status, rawBody: "rate limited", headers: { "content-type": "text/plain", ...headers } });
@@ -24,8 +23,13 @@ function handleIn(current: World, dependencies = current.dependencies): ReturnTy
   return createHandle(requestDependencies, createTokenAccess(requestDependencies));
 }
 
+function requestOf(current: World): IrRequest {
+  const text = current.enums.provider.forebay_ir_block_kind.FOREBAY_IR_BLOCK_TEXT;
+  return { model: "claude-sonnet-4", messages: [{ role: "user", content: [{ kind: text, text: "hi" }] }], stream: 0 };
+}
+
 function served(current: World, upstream = new AbortController(), dependencies = current.dependencies): Promise<HandleAnswer> {
-  return handleIn(current, dependencies)({ request: REQUEST, headers: [], token: 1n }, upstream);
+  return handleIn(current, dependencies)({ request: requestOf(current), headers: [], token: 1n }, upstream);
 }
 
 function repliesInTurn(current: World, replies: Reply[]): void {
@@ -55,7 +59,7 @@ describe("the request path over the real accounts and anthropic services", () =>
 
     const answer = await served(current);
 
-    expect(answer).toMatchObject({ kind: 2, failure: { status } });
+    expect(answer).toMatchObject({ kind: current.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_FAILURE, failure: { status } });
     const first = (await cooledUntil(current, "a")) - NOW;
     const second = (await cooledUntil(current, "b")) - NOW;
     expect(first).toBeGreaterThan(0);
@@ -69,7 +73,7 @@ describe("the request path over the real accounts and anthropic services", () =>
 
     const answer = await served(current);
 
-    expect(answer.kind).toBe(1);
+    expect(answer.kind).toBe(current.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_RESPONSE);
     expect(current.server.requestsTo("/v1/messages").map((request) => request.headers.authorization)).toEqual(["Bearer stored-access-a", "Bearer stored-access-b"]);
     expect(await cooledUntil(current, "a")).toBeGreaterThan(NOW);
   }, RUN_BOUND);
@@ -84,8 +88,8 @@ describe("the request path over the real accounts and anthropic services", () =>
     const answer = await served(current);
 
     expect(current.server.requestsTo("/v1/messages")).toHaveLength(2);
-    expect(answer).toMatchObject({ kind: 2, failure: { status: 429, body: "rate limited", has_retry_after: 1, retry_after_milliseconds: 600_000 } });
-    expect(answer.kind === 2 && answer.failure.headers).toContainEqual({ name: "x-turn", value: "2" });
+    expect(answer).toMatchObject({ kind: current.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_FAILURE, failure: { status: 429, body: "rate limited", has_retry_after: 1, retry_after_milliseconds: 600_000 } });
+    expect(answer.failure?.headers).toContainEqual({ name: "x-turn", value: "2" });
   }, RUN_BOUND);
 
   it("answers a 502 when every turn failed without an upstream answer", async () => {
@@ -96,15 +100,15 @@ describe("the request path over the real accounts and anthropic services", () =>
 
     const answer = await served(current);
 
-    expect(answer).toMatchObject({ kind: 2, failure: { status: 502 } });
-    expect(answer.kind === 2 && JSON.parse(answer.failure.body)).toMatchObject({ error: { type: "api_error", message: "Claude request failed after 2 attempts" } });
+    expect(answer).toMatchObject({ kind: current.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_FAILURE, failure: { status: 502 } });
+    expect(JSON.parse(answer.failure!.body)).toMatchObject({ error: { type: "api_error", message: "Claude request failed after 2 attempts" } });
   }, RUN_BOUND);
 
   it("merges the quota a response's headers carry over the pools already stored", async () => {
     const current = world();
     await seeded(current, "a");
     const stored = { pools: { "7d": { utilization: 0.1 } }, at: NOW };
-    const argument = { store: current.store, id: "a", outcome: 5, now: NOW, has_reset_at: 0, reset_at: 0, has_random: 0, random: 0, attempt: 0, base_milliseconds: 0, max_milliseconds: 0, quota: stored };
+    const argument = { store: current.store, id: "a", outcome: current.enums.accounts.forebay_accounts_report_outcome.FOREBAY_ACCOUNTS_QUOTA, now: NOW, has_reset_at: 0, reset_at: 0, has_random: 0, random: 0, attempt: 0, base_milliseconds: 0, max_milliseconds: 0, quota: stored };
     await current.accounts.report({ argument });
     repliesInTurn(current, [ok({ "anthropic-ratelimit-unified-5h-utilization": "0.5", "anthropic-ratelimit-unified-5h-status": "allowed" })]);
 
@@ -122,7 +126,7 @@ describe("the request path over the real accounts and anthropic services", () =>
 
     const answer = await served(current);
 
-    expect(answer.kind).toBe(1);
+    expect(answer.kind).toBe(current.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_RESPONSE);
     expect(current.server.requestsTo("/v1/messages").map((request) => request.headers.authorization)).toEqual(["Bearer stored-access-b"]);
     expect(await current.storedAccount("a")).toMatchObject({ enabled: false, disabledReason: "re-login required (no refresh token is stored)" });
   }, RUN_BOUND);
@@ -135,7 +139,7 @@ describe("the request path over the real accounts and anthropic services", () =>
 
     const answer = await served(current, new AbortController(), failing);
 
-    expect(answer.kind).toBe(1);
+    expect(answer.kind).toBe(current.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_RESPONSE);
     expect(current.reports.join()).toMatch(/could not report success for a: the store is read only \(make it writable\)/);
   }, RUN_BOUND);
 
@@ -146,7 +150,7 @@ describe("the request path over the real accounts and anthropic services", () =>
 
     const answer = await served(current, new AbortController(), failing);
 
-    expect(answer).toEqual({ kind: 4, message: "claude-code-provider could not serve the request: the store is read only (make it writable)" });
+    expect(answer).toEqual({ kind: current.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_THROWN, message: "claude-code-provider could not serve the request: the store is read only (make it writable)" });
     expect(current.server.requestsTo("/v1/messages")).toHaveLength(0);
   }, RUN_BOUND);
 });
@@ -160,7 +164,7 @@ describe("a cancelled call", () => {
 
     const answer = await served(current, upstream);
 
-    expect(answer.kind).toBe(4);
+    expect(answer.kind).toBe(current.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_THROWN);
     expect((await current.storedAccount("a")) as unknown as Record<string, unknown>).not.toHaveProperty("lastUsed");
     expect(current.server.requests).toHaveLength(0);
   }, RUN_BOUND);
@@ -176,7 +180,7 @@ describe("a cancelled call", () => {
     upstream.abort();
     const answer = await answering;
 
-    expect(answer.kind).toBe(4);
+    expect(answer.kind).toBe(current.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_THROWN);
     const account = (await current.storedAccount("a")) as unknown as Record<string, unknown>;
     expect(account).toMatchObject({ enabled: true });
     expect(account).not.toHaveProperty("coolingDownUntil");
@@ -195,6 +199,6 @@ describe("a cancelled call", () => {
     upstream.abort();
     const answer = await answering;
 
-    expect(answer).toEqual({ kind: 4, message: "claude-code-provider's call was cancelled before it was served" });
+    expect(answer).toEqual({ kind: current.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_THROWN, message: "claude-code-provider's call was cancelled before it was served" });
   }, RUN_BOUND);
 });

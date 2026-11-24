@@ -4,7 +4,6 @@ import { exchangeCode } from "../oauth/exchange.js";
 import { parsePastedCallback } from "../oauth/paste.js";
 import { claimVerifier, rememberPendingLogin } from "../oauth/pending-login.js";
 import type { TokenSet } from "../oauth/token-set.js";
-import { UPSERT_OUTCOME } from "../contract.js";
 import { accessSecretName, findAccount, refreshSecretName } from "./dependencies.js";
 import type { AccountDependencies } from "./dependencies.js";
 
@@ -49,11 +48,10 @@ async function restoreTokens(dependencies: AccountDependencies, id: string, prev
   await restoreSecret(dependencies, refreshSecretName(id), previous.refresh);
 }
 
-const OUTCOME_NAMES: Readonly<Record<number, "added" | "updated" | "unchanged">> = {
-  [UPSERT_OUTCOME.ADDED]: "added",
-  [UPSERT_OUTCOME.UPDATED]: "updated",
-  [UPSERT_OUTCOME.UNCHANGED]: "unchanged",
-};
+function outcomeNamesOf(dependencies: AccountDependencies): Readonly<Record<number, "added" | "updated" | "unchanged">> {
+  const upserted = dependencies.enums.accounts.forebay_accounts_upsert_outcome;
+  return { [upserted.FOREBAY_ACCOUNTS_ADDED]: "added", [upserted.FOREBAY_ACCOUNTS_UPDATED]: "updated", [upserted.FOREBAY_ACCOUNTS_UNCHANGED]: "unchanged" };
+}
 
 async function upsertAccount(dependencies: AccountDependencies, id: string, tokens: TokenSet): Promise<"added" | "updated" | "unchanged"> {
   const existing = await findAccount(dependencies, id);
@@ -66,7 +64,7 @@ async function upsertAccount(dependencies: AccountDependencies, id: string, toke
     ...(existing?.disabledReason === undefined || existing.disabledReason === "" ? {} : { disabledReason: "" }),
   };
   const { outcome } = await dependencies.accounts.upsert({ argument: { store: dependencies.store, account } });
-  return OUTCOME_NAMES[outcome] ?? "updated";
+  return outcomeNamesOf(dependencies)[outcome] ?? "updated";
 }
 
 async function complete(dependencies: AccountDependencies, pasted: { code: string; state: string }): Promise<LoginAnswer> {

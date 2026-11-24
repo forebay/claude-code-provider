@@ -1,8 +1,7 @@
 import { CLAUDE_CLIENT_ID, CLIENT_ID_VARIABLE } from "./constants.js";
-import { STRATEGY, type Config } from "./contract.js";
+import type { AccountsEnums, Config } from "./contract.js";
 
 const LOOPBACK_IPV4 = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
-const STRATEGIES: Readonly<Record<string, number>> = { sticky: STRATEGY.STICKY, "round-robin": STRATEGY.ROUND_ROBIN, hybrid: STRATEGY.HYBRID };
 
 /**
  * What this plugin's configuration says, under names that read as code.
@@ -59,10 +58,15 @@ async function tokenBearingUrl(config: Config, key: string): Promise<string> {
   return value;
 }
 
-async function strategyOf(config: Config): Promise<number> {
+/** The strategies by the names the setting takes. */
+function strategiesOf(strategy: AccountsEnums["forebay_accounts_strategy"]): Readonly<Record<string, number>> {
+  return { sticky: strategy.FOREBAY_ACCOUNTS_STICKY, "round-robin": strategy.FOREBAY_ACCOUNTS_ROUND_ROBIN, hybrid: strategy.FOREBAY_ACCOUNTS_HYBRID };
+}
+
+async function strategyOf(config: Config, strategies: Readonly<Record<string, number>>): Promise<number> {
   const name = await required<string>(config, "account_selection_strategy", "string");
-  const strategy = STRATEGIES[name];
-  if (strategy === undefined) throw new Error(`the account_selection_strategy setting of claude-code-provider must be one of ${Object.keys(STRATEGIES).join(", ")}, not ${name}`);
+  const strategy = strategies[name];
+  if (strategy === undefined) throw new Error(`the account_selection_strategy setting of claude-code-provider must be one of ${Object.keys(strategies).join(", ")}, not ${name}`);
   return strategy;
 }
 
@@ -73,12 +77,12 @@ async function positiveCount(config: Config, key: string): Promise<number> {
 }
 
 /** Reads every setting afresh, so a change made while the host runs applies to the next call. */
-export async function readSettings(config: Config): Promise<ClaudeSettings> {
+export async function readSettings(config: Config, enums: AccountsEnums): Promise<ClaudeSettings> {
   return {
     authorizeUrl: await required(config, "oauth_authorize_url", "string"),
     tokenUrl: await tokenBearingUrl(config, "oauth_token_url"),
     apiBase: (await tokenBearingUrl(config, "api_base_url")).replace(/\/+$/, ""),
-    strategy: await strategyOf(config),
+    strategy: await strategyOf(config, strategiesOf(enums.forebay_accounts_strategy)),
     logging: await required(config, "logging", "boolean"),
     maxAccountAttempts: await required(config, "max_account_attempts", "number"),
     defaultCooldownSeconds: await required(config, "default_cooldown_seconds", "number"),

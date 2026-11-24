@@ -1,7 +1,6 @@
-import { REPORT_OUTCOME } from "../contract.js";
 import { refreshTokens } from "../oauth/refresh.js";
 import { reportAttempt } from "../request/report.js";
-import { accessSecretName, findAccount, logIfFailed, refreshSecretName } from "./dependencies.js";
+import { accessSecretName, findAccount, logIfFailed, refreshSecretName, outcomesOf } from "./dependencies.js";
 import type { AccountDependencies } from "./dependencies.js";
 
 const DEFAULT_REFRESH_TIMEOUT_MILLISECONDS = 30000;
@@ -22,7 +21,7 @@ function unusable(reason: string): AccessAnswer {
 }
 
 function disable(dependencies: AccountDependencies, id: string, reason: string): Promise<void> {
-  return reportAttempt(dependencies, id, { outcome: REPORT_OUTCOME.DISABLED, reason });
+  return reportAttempt(dependencies, id, { outcome: outcomesOf(dependencies).FOREBAY_ACCOUNTS_DISABLED, reason });
 }
 
 /** @implNote The refresh token is written before the access token: a rotated one is already spent upstream, so losing it would lose the account. */

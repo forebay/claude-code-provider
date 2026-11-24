@@ -5,7 +5,7 @@ import type { RunningHost } from "@weivel/typescript/program";
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 import type { AccountDependencies } from "../src/accounts/dependencies.js";
 import type { TextSecrets } from "../src/accounts/secrets.js";
-import type { Accounts, Anthropic, IrRequest, Pair, StoredAccount } from "../src/contract.js";
+import type { Accounts, Anthropic, Enums, IrRequest, Pair, StoredAccount } from "../src/contract.js";
 import { readSettings } from "../src/settings.js";
 import { bundled, homeWith, hostIn, realPlacesSnapshot, REPOSITORY, type Home, type Install } from "./fixtures/home.js";
 import { startOauthServer, type OauthServer } from "./fixtures/oauth-server.js";
@@ -58,7 +58,7 @@ export function consumerInstall(bundle: string): Install {
     version: "1.0.0",
     entry: "index.js",
     capabilities: { provides: [], consumes: ["forebay.provider"] },
-    services: { provides: ["consumer:accounts", "consumer:anthropic", "consumer:calls"], consumes: ["accounts", "anthropic"] },
+    services: { provides: ["consumer:accounts", "consumer:anthropic", "consumer:enums", "consumer:calls"], consumes: ["accounts", "anthropic"] },
     config: { defaults: {} },
   };
   return { manifest, bundle, settings: {} };
@@ -73,6 +73,8 @@ export interface World {
   server: OauthServer;
   accounts: Accounts;
   anthropic: TestAnthropic;
+  /** The enums forebay-library's descriptions carry, as the consumer fixture reads them. */
+  enums: Enums;
   store: string;
   secrets: ReturnType<typeof fakeSecrets>;
   settings: Record<string, unknown>;
@@ -110,7 +112,8 @@ export function useWorld(): () => World {
   beforeEach(async () => {
     const accounts = host.service<Accounts>("consumer", "consumer:accounts");
     const anthropic = host.service<TestAnthropic>("consumer", "consumer:anthropic");
-    if (accounts === undefined || anthropic === undefined) throw new Error("the consumer registered no accounts or anthropic service");
+    const enums = host.service<Enums>("consumer", "consumer:enums");
+    if (accounts === undefined || anthropic === undefined || enums === undefined) throw new Error("the consumer registered no accounts, anthropic or enums service");
     const server = await startOauthServer();
     folder = mkdtempSync(join(tmpdir(), "claude-code-provider-store-"));
     const store = join(folder, "accounts.json");
@@ -120,9 +123,10 @@ export function useWorld(): () => World {
     let time = NOW;
     const dependencies: AccountDependencies = {
       accounts,
+      enums,
       store,
       secrets,
-      settings: () => readSettings(configOf(settings)),
+      settings: () => readSettings(configOf(settings), enums.accounts),
       clientId: () => "client-under-test",
       clock: () => time,
       random: () => 0.5,
@@ -132,6 +136,7 @@ export function useWorld(): () => World {
       server,
       accounts,
       anthropic,
+      enums,
       store,
       secrets,
       settings,

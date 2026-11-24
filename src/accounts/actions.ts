@@ -1,8 +1,7 @@
 import { INFERENCE_SCOPE_REASON } from "../constants.js";
-import { REPORT_OUTCOME } from "../contract.js";
 import { reportAttempt } from "../request/report.js";
 import type { AccessAnswer, TokenAccess } from "./access.js";
-import { accessSecretName, enabledAccounts, logIfFailed, messageOf, refreshSecretName, storedAccounts } from "./dependencies.js";
+import { accessSecretName, enabledAccounts, logIfFailed, messageOf, refreshSecretName, storedAccounts, outcomesOf } from "./dependencies.js";
 import type { AccountDependencies } from "./dependencies.js";
 import { verifyAccess } from "./verify.js";
 import type { VerifyAnswer } from "./verify.js";
@@ -52,7 +51,7 @@ async function verifyOne(dependencies: AccountDependencies, access: TokenAccess,
   const answer: AccessAnswer = await access.ensureAccess(id, now, NEVER_ABORTED);
   if ("none" in answer) return { id, status: "failed", detail: answer.reason };
   const verdict = await verifyAccess((await dependencies.settings()).apiBase, answer.access);
-  if (verdict.status === "disabled") await reportAttempt(dependencies, id, { outcome: REPORT_OUTCOME.DISABLED, reason: INFERENCE_SCOPE_REASON });
+  if (verdict.status === "disabled") await reportAttempt(dependencies, id, { outcome: outcomesOf(dependencies).FOREBAY_ACCOUNTS_DISABLED, reason: INFERENCE_SCOPE_REASON });
   if (verdict.status === "expired") await logIfFailed(dependencies, `could not expire ${id}`, () => dependencies.accounts.upsert({ argument: { store: dependencies.store, account: { id, expires: now } } }));
   return { id, ...verdict };
 }

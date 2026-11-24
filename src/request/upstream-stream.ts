@@ -1,4 +1,4 @@
-import { NEXT, type Anthropic, type Handle, type NextAnswer, type Stream } from "../contract.js";
+import type { Anthropic, Handle, NextAnswer, ProviderEnums, Stream } from "../contract.js";
 
 const NOTHING = new Uint8Array(0);
 
@@ -12,6 +12,7 @@ function messageOf(cause: unknown): string {
  */
 export class UpstreamStream implements Stream {
   readonly #anthropic: Anthropic;
+  readonly #next: ProviderEnums["forebay_provider_next_kind"];
   readonly #decoder: Handle;
   readonly #reader: ReadableStreamDefaultReader<Uint8Array>;
   readonly #upstream: AbortController;
@@ -19,8 +20,9 @@ export class UpstreamStream implements Stream {
   #finished = false;
   #released = false;
 
-  constructor(anthropic: Anthropic, decoder: Handle, body: ReadableStream<Uint8Array>, upstream: AbortController) {
+  constructor(anthropic: Anthropic, enums: ProviderEnums, decoder: Handle, body: ReadableStream<Uint8Array>, upstream: AbortController) {
     this.#anthropic = anthropic;
+    this.#next = enums.forebay_provider_next_kind;
     this.#decoder = decoder;
     this.#reader = body.getReader();
     this.#upstream = upstream;
@@ -32,10 +34,10 @@ export class UpstreamStream implements Stream {
       while (this.#pending.length === 0 && !this.#finished) await this.#readMore();
     } catch (cause) {
       this.release();
-      return { kind: NEXT.FAILURE, failure: `the upstream stream broke: ${messageOf(cause)}` };
+      return { kind: this.#next.FOREBAY_PROVIDER_NEXT_FAILURE, failure: `the upstream stream broke: ${messageOf(cause)}` };
     }
     const event = this.#pending.shift();
-    return event === undefined ? { kind: NEXT.END } : { kind: NEXT.EVENT, event };
+    return event === undefined ? { kind: this.#next.FOREBAY_PROVIDER_NEXT_END } : { kind: this.#next.FOREBAY_PROVIDER_NEXT_EVENT, event };
   }
 
   /** Ends the upstream request when it has not ended, and frees the decoder; a second call does nothing. */

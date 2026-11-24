@@ -1,11 +1,9 @@
 import { logIfFailed } from "../accounts/dependencies.js";
 import type { AccountDependencies } from "../accounts/dependencies.js";
 import { MESSAGES_LANE } from "../constants.js";
-import { REPORT_OUTCOME } from "../contract.js";
 import type { QuotaPool } from "./quota-headers.js";
 
 const MILLISECONDS_PER_SECOND = 1000;
-const OUTCOME_NAMES: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(REPORT_OUTCOME).map(([name, value]) => [value, name.toLowerCase()]));
 
 export interface AttemptReport {
   /** A forebay_accounts_report_outcome. */
@@ -20,8 +18,14 @@ export interface AttemptReport {
  * Reports what an attempt did to an account. A refusal or a failure of the accounts service is
  * logged and never stops the request: the answer to the caller does not depend on the bookkeeping.
  */
+/** The outcome as the log words it: its entry's name past the enum's prefix, in lower case. */
+function outcomeName(dependencies: AccountDependencies, outcome: number): string {
+  const entry = Object.entries(dependencies.enums.accounts.forebay_accounts_report_outcome).find(([, number]) => number === outcome);
+  return entry === undefined ? String(outcome) : entry[0].replace("FOREBAY_ACCOUNTS_", "").toLowerCase();
+}
+
 export async function reportAttempt(dependencies: AccountDependencies, id: string, report: AttemptReport): Promise<void> {
-  await logIfFailed(dependencies, `could not report ${OUTCOME_NAMES[report.outcome] ?? report.outcome} for ${id}`, async () => {
+  await logIfFailed(dependencies, `could not report ${outcomeName(dependencies, report.outcome)} for ${id}`, async () => {
     const settings = await dependencies.settings();
     await dependencies.accounts.report({
       argument: {

@@ -1,4 +1,3 @@
-import { REPORT_OUTCOME } from "../contract.js";
 import { mergedPools } from "../request/capture-quota.js";
 import { quotaBars, remainingFractions } from "../request/quota-headers.js";
 import type { QuotaBar, StoredQuota } from "../request/quota-headers.js";
@@ -7,7 +6,7 @@ import { refreshQuota } from "../request/usage.js";
 import type { TokenAccess } from "./access.js";
 import { targetIds } from "./actions.js";
 import type { RowInput } from "./actions.js";
-import { findAccount } from "./dependencies.js";
+import { findAccount, outcomesOf } from "./dependencies.js";
 import type { AccountDependencies } from "./dependencies.js";
 
 const NEVER_ABORTED = new AbortController().signal;
@@ -26,7 +25,7 @@ async function quotaOf(dependencies: AccountDependencies, access: TokenAccess, i
   const stored = (await findAccount(dependencies, id))?.quota as StoredQuota | undefined;
   const pools = refreshed.complete ? refreshed.pools : mergedPools(stored, refreshed.pools);
   if (Object.keys(pools).length === 0) return { id, reason: "the upstream reported no quota" };
-  await reportAttempt(dependencies, id, { outcome: REPORT_OUTCOME.QUOTA, quota: { pools, at: dependencies.clock() } });
+  await reportAttempt(dependencies, id, { outcome: outcomesOf(dependencies).FOREBAY_ACCOUNTS_QUOTA, quota: { pools, at: dependencies.clock() } });
   const quota: StoredQuota = { pools };
   const { capacity } = await dependencies.accounts.has_capacity({ argument: { pools: remainingFractions(quota) } });
   return { id, bars: quotaBars(quota) ?? [], hasCapacity: capacity === 1 };
