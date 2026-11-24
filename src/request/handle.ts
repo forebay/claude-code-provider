@@ -84,7 +84,7 @@ async function unavailable(dependencies: RequestDependencies, acquired: AcquireA
  * the accounts service backs the account off by. A 401 rotates, a 403 disables the account, any other status is the
  * answer as the upstream gave it. No account that can serve, or accounts that are all cooling, is a 503, saying when
  * to retry where that is known, and running out of turns answers the last real upstream failure, else a 502. A
- * cancelled call answers THROWN and reports nothing.
+ * refused `acquire` answers THROWN with its cause, and a cancelled call answers THROWN and reports nothing.
  */
 export function createHandle(dependencies: RequestDependencies, access: TokenAccess): (argument: HandleArgument, upstream: AbortController) => Promise<HandleAnswer> {
   async function ensured(id: string, signal: AbortSignal): Promise<AccessAnswer> {
