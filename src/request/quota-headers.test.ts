@@ -1,19 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { openTestAccounts } from "../../test/accounts-library.js";
-import type { TestAccounts } from "../../test/accounts-library.js";
+import { describe, expect, it } from "vitest";
 import { loadVectors } from "../../test/vectors.js";
+import { RUN_BOUND, useWorld } from "../../test/world.js";
 import { poolLabel, quotaBars, readPools, remainingFractions } from "./quota-headers.js";
 import type { StoredQuota } from "./quota-headers.js";
 
-let library: TestAccounts;
-
-beforeEach(() => {
-  library = openTestAccounts();
-});
-
-afterEach(() => {
-  library.close();
-});
+const world = useWorld();
 
 interface AccountInput {
   cachedQuota?: StoredQuota;
@@ -45,9 +36,9 @@ describe("quotaBars against the Java vectors", () => {
 
 describe("whether an account has quota left, against the Java vectors and the real accounts service", () => {
   for (const vector of loadVectors<AccountInput, boolean>("quota", "accountHasQuota")) {
-    it(vector.name, () => {
+    it(vector.name, async () => {
       const pools = remainingFractions(vector.input.cachedQuota);
-      expect(library.accounts.hasCapacity({ pools }).capacity).toBe(vector.expected);
-    });
+      expect((await world().accounts.has_capacity({ argument: { pools } })).capacity).toBe(vector.expected ? 1 : 0);
+    }, RUN_BOUND);
   }
 });

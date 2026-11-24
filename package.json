@@ -1,7 +1,7 @@
 {
   "name": "claude-code-provider",
   "version": "2.12.5",
-  "description": "Claude Code subscription auth provider on the shared host, multiple Claude accounts via OAuth, with subscription rate limits exposed to the proxy.",
+  "description": "Claude Code subscription provider, a weivel plugin providing forebay.provider: multiple Claude accounts via OAuth, with subscription rate limits exposed to the proxy.",
   "main": "dist/plugin.js",
   "type": "module",
   "license": "MIT",
@@ -27,19 +27,16 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.18.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "npm run build && tsc --noEmit && vitest run",
+    "test": "node scripts/native.ts && npm run build && tsc --noEmit && vitest run",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
-    "@forebay/host": "file:./siblings/anthropic-translator/siblings/host",
     "@types/node": "22.10.2",
-    "@weivel/typescript": "file:./siblings/anthropic-translator/siblings/host/siblings/typescript",
-    "ajv": "8.17.1",
-    "anthropic-translator": "file:./siblings/anthropic-translator",
+    "@weivel/typescript": "file:./siblings/typescript",
     "typescript": "5.7.2",
     "vitest": "3.2.7"
   }

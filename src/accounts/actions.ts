@@ -1,13 +1,15 @@
 import { INFERENCE_SCOPE_REASON } from "../constants.js";
+import { REPORT_OUTCOME } from "../contract.js";
+import { reportAttempt } from "../request/report.js";
 import type { AccessAnswer, TokenAccess } from "./access.js";
-import { accepted, accessSecretName, enabledAccounts, logIfRefused, refreshSecretName, secretsOf, storedAccounts } from "./dependencies.js";
+import { accessSecretName, enabledAccounts, logIfFailed, messageOf, refreshSecretName, storedAccounts } from "./dependencies.js";
 import type { AccountDependencies } from "./dependencies.js";
 import { verifyAccess } from "./verify.js";
 import type { VerifyAnswer } from "./verify.js";
 
 /** What a row adds to an action's argument: the account it was run on. */
 export interface RowInput {
-  item?: unknown;
+  readonly item?: unknown;
 }
 
 export interface ListedAccount {
@@ -21,23 +23,20 @@ export interface ListedAccount {
 
 const NEVER_ABORTED = new AbortController().signal;
 
-function messageOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
-
-function itemOf(input: RowInput): string | undefined {
-  return typeof input.item === "string" && input.item !== "" ? input.item : undefined;
+function itemOf(input: RowInput | undefined): string | undefined {
+  return typeof input?.item === "string" && input.item !== "" ? input.item : undefined;
 }
 
 /** The account the row names, else every enabled account. */
-export function targetIds(dependencies: AccountDependencies, input: RowInput): string[] {
-  return itemOf(input) === undefined ? enabledAccounts(dependencies).map((account) => account.id) : [itemOf(input) as string];
+export async function targetIds(dependencies: AccountDependencies, input: RowInput | undefined): Promise<string[]> {
+  const item = itemOf(input);
+  return item === undefined ? (await enabledAccounts(dependencies)).map((account) => account.id) : [item];
 }
 
 /** The `accounts` action: each account and whether it is usable, never a token. */
-export function listAccountsAction(dependencies: AccountDependencies): () => { accounts: ListedAccount[] } {
-  return () => ({
-    accounts: storedAccounts(dependencies).map((account) => ({
+export function listAccountsAction(dependencies: AccountDependencies): () => Promise<{ accounts: ListedAccount[] }> {
+  return async () => ({
+    accounts: (await storedAccounts(dependencies)).map((account) => ({
       id: account.id,
       ...(account.label === undefined ? {} : { label: account.label }),
       enabled: account.enabled !== false,
@@ -52,9 +51,9 @@ async function verifyOne(dependencies: AccountDependencies, access: TokenAccess,
   const now = dependencies.clock();
   const answer: AccessAnswer = await access.ensureAccess(id, now, NEVER_ABORTED);
   if ("none" in answer) return { id, status: "failed", detail: answer.reason };
-  const verdict = await verifyAccess(dependencies.settings().apiBase, answer.access);
-  if (verdict.status === "disabled") logIfRefused(dependencies, dependencies.accounts().report({ store: dependencies.store, id, outcome: "disabled", reason: INFERENCE_SCOPE_REASON, now }), `could not disable ${id}`);
-  if (verdict.status === "expired") logIfRefused(dependencies, dependencies.accounts().upsert({ store: dependencies.store, account: { id, expires: now } }), `could not expire ${id}`);
+  const verdict = await verifyAccess((await dependencies.settings()).apiBase, answer.access);
+  if (verdict.status === "disabled") await reportAttempt(dependencies, id, { outcome: REPORT_OUTCOME.DISABLED, reason: INFERENCE_SCOPE_REASON });
+  if (verdict.status === "expired") await logIfFailed(dependencies, `could not expire ${id}`, () => dependencies.accounts.upsert({ argument: { store: dependencies.store, account: { id, expires: now } } }));
   return { id, ...verdict };
 }
 
@@ -62,10 +61,10 @@ async function verifyOne(dependencies: AccountDependencies, access: TokenAccess,
  * The `verify` action, on the row's account or on every enabled one: a 401 is reported as expired
  * and makes the next use refresh the token, a 403 disables the account.
  */
-export function verifyAction(dependencies: AccountDependencies, access: TokenAccess): (input: RowInput) => Promise<{ results: Array<{ id: string } & VerifyAnswer> }> {
+export function verifyAction(dependencies: AccountDependencies, access: TokenAccess): (input?: RowInput) => Promise<{ results: Array<{ id: string } & VerifyAnswer> }> {
   return async (input) => {
     const results = [];
-    for (const id of targetIds(dependencies, input)) results.push(await verifyOne(dependencies, access, id).catch((cause: unknown) => ({ id, status: "failed" as const, detail: messageOf(cause) })));
+    for (const id of await targetIds(dependencies, input)) results.push(await verifyOne(dependencies, access, id).catch((cause: unknown) => ({ id, status: "failed" as const, detail: messageOf(cause) })));
     return { results };
   };
 }
@@ -80,25 +79,22 @@ async function refreshOne(dependencies: AccountDependencies, access: TokenAccess
 }
 
 /** The `refresh` action: forces a new access token for the row's account or for every enabled one. */
-export function refreshAction(dependencies: AccountDependencies, access: TokenAccess): (input: RowInput) => Promise<{ results: Array<{ id: string; refreshed: boolean; reason?: string }> }> {
+export function refreshAction(dependencies: AccountDependencies, access: TokenAccess): (input?: RowInput) => Promise<{ results: Array<{ id: string; refreshed: boolean; reason?: string }> }> {
   return async (input) => {
     const results = [];
-    for (const id of targetIds(dependencies, input)) {
-      results.push(await refreshOne(dependencies, access, id));
-    }
+    for (const id of await targetIds(dependencies, input)) results.push(await refreshOne(dependencies, access, id));
     return { results };
   };
 }
 
 /** The `remove` action: forgets the row's account and deletes its tokens. */
-export function removeAction(dependencies: AccountDependencies): (input: RowInput) => Promise<{ id: string; removed: boolean }> {
+export function removeAction(dependencies: AccountDependencies): (input?: RowInput) => Promise<{ id: string; removed: boolean }> {
   return async (input) => {
     const id = itemOf(input);
     if (id === undefined) throw new Error("remove needs an account; run it from an account's row");
-    const secrets = secretsOf(dependencies);
-    const removed = accepted(dependencies.accounts().remove({ store: dependencies.store, id }), `could not remove ${id}`).removed === true;
-    await secrets.delete(accessSecretName(id));
-    await secrets.delete(refreshSecretName(id));
-    return { id, removed };
+    const { removed } = await dependencies.accounts.remove({ argument: { store: dependencies.store, id } });
+    await dependencies.secrets.remove(accessSecretName(id));
+    await dependencies.secrets.remove(refreshSecretName(id));
+    return { id, removed: removed === 1 };
   };
 }

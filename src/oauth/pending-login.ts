@@ -1,4 +1,4 @@
-import type { PluginSecrets } from "@weivel/typescript";
+import type { TextSecrets } from "../accounts/secrets.js";
 
 const PENDING_LOGIN_SECRET = "login.pending";
 const NOT_IN_PROGRESS = "this code does not belong to the sign in in progress; run login without a code for a new url";
@@ -15,7 +15,7 @@ export interface PendingLogin {
  * @implNote One slot rather than a secret per state: secrets cannot be listed, so a login abandoned
  * half way would leave a secret nothing could ever find to remove.
  */
-export function rememberPendingLogin(secrets: PluginSecrets, pending: PendingLogin): Promise<void> {
+export function rememberPendingLogin(secrets: TextSecrets, pending: PendingLogin): Promise<void> {
   return secrets.set(PENDING_LOGIN_SECRET, JSON.stringify(pending));
 }
 
@@ -24,10 +24,10 @@ export function rememberPendingLogin(secrets: PluginSecrets, pending: PendingLog
  *
  * @implNote A state that does not match leaves the slot alone, so a stray paste cannot cancel a sign in in progress.
  */
-export async function claimVerifier(secrets: PluginSecrets, state: string): Promise<string> {
+export async function claimVerifier(secrets: TextSecrets, state: string): Promise<string> {
   const stored = await secrets.get(PENDING_LOGIN_SECRET);
   const pending = stored === undefined ? undefined : (JSON.parse(stored) as PendingLogin);
   if (pending === undefined || pending.state !== state) throw new Error(NOT_IN_PROGRESS);
-  await secrets.delete(PENDING_LOGIN_SECRET);
+  await secrets.remove(PENDING_LOGIN_SECRET);
   return pending.verifier;
 }

@@ -1,25 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { openTestAccounts } from "../../test/accounts-library.js";
-import type { TestAccounts } from "../../test/accounts-library.js";
-import { startOauthServer } from "../../test/fixtures/oauth-server.js";
+import { describe, expect, it } from "vitest";
 import type { OauthServer } from "../../test/fixtures/oauth-server.js";
 import { loadVectors } from "../../test/vectors.js";
+import { RUN_BOUND, useWorld } from "../../test/world.js";
 import { bucketOfLimit, poolsOfUsage, refreshQuota } from "./usage.js";
 import { quotaBars, remainingFractions } from "./quota-headers.js";
 import type { StoredQuota } from "./quota-headers.js";
 
-let server: OauthServer;
-let library: TestAccounts;
-
-beforeEach(async () => {
-  server = await startOauthServer();
-  library = openTestAccounts();
-});
-
-afterEach(async () => {
-  await server.close();
-  library.close();
-});
+const world = useWorld();
+const server = (): OauthServer => world().server;
 
 describe("bucketOfLimit against the Java vectors", () => {
   for (const vector of loadVectors<unknown, string | null>("quota", "bucketOfLimit")) {
@@ -44,7 +32,7 @@ function parsedOrUndefined(body: string): unknown {
 
 describe("the usage endpoint's answer against the Java vectors", () => {
   for (const vector of loadVectors<UsageVector["input"], UsageVector["expected"]>("usage", "usage")) {
-    it(vector.name, () => {
+    it(vector.name, async () => {
       const pools = vector.input.status === 200 ? poolsOfUsage(parsedOrUndefined(vector.input.body)) : undefined;
       expect(pools ?? null).toEqual(vector.expected.pools);
       if (pools === undefined) {
@@ -54,17 +42,17 @@ describe("the usage endpoint's answer against the Java vectors", () => {
       const quota: StoredQuota = { pools };
       const bars = (quotaBars(quota) ?? []).map((bar) => ({ ...bar, resetTime: bar.resetTime === null ? null : new Date(bar.resetTime).getTime() }));
       expect(bars).toEqual(vector.expected.bars.map((bar) => ({ ...bar, resetTime: bar.resetTime === null ? null : Date.parse(bar.resetTime) })));
-      const active = library.accounts.hasCapacity({ pools: remainingFractions(quota) }).capacity === true;
+      const active = (await world().accounts.has_capacity({ argument: { pools: remainingFractions(quota) } })).capacity === 1;
       expect(active ? "active" : "rate-limited").toBe(vector.expected.status);
-    });
+    }, RUN_BOUND);
   }
 });
 
 describe("refreshQuota", () => {
   it("asks the usage endpoint with the oauth headers and answers every pool it lists", async () => {
-    server.usageResponder = () => ({ status: 200, body: { limits: [{ kind: "session", percent: 25 }] } });
-    expect(await refreshQuota(server.url, "the-access")).toEqual({ pools: { "5h": { utilization: 0.25 } }, complete: true });
-    const [request] = server.requestsTo("/api/oauth/usage");
+    server().usageResponder = () => ({ status: 200, body: { limits: [{ kind: "session", percent: 25 }] } });
+    expect(await refreshQuota(server().url, "the-access")).toEqual({ pools: { "5h": { utilization: 0.25 } }, complete: true });
+    const [request] = server().requestsTo("/api/oauth/usage");
     expect(request?.headers).toMatchObject({ authorization: "Bearer the-access", "anthropic-version": "2023-06-01", "anthropic-beta": "oauth-2025-04-20" });
   });
 
@@ -77,7 +65,7 @@ describe("refreshQuota", () => {
       return new Response(body, { status: 200 });
     }) as typeof fetch;
     try {
-      await refreshQuota(server.url, "the-access");
+      await refreshQuota(server().url, "the-access");
     } finally {
       globalThis.fetch = original;
     }
@@ -85,14 +73,14 @@ describe("refreshQuota", () => {
   });
 
   it("falls back to a one token ping whose response headers carry the pools", async () => {
-    server.messagesResponder = () => ({
+    server().messagesResponder = () => ({
       status: 200,
       body: {},
       headers: { "content-type": "application/json", "anthropic-ratelimit-unified-5h-utilization": "0.4", "anthropic-ratelimit-unified-5h-status": "allowed" },
     });
-    const answer = await refreshQuota(server.url, "the-access");
+    const answer = await refreshQuota(server().url, "the-access");
     expect(answer).toEqual({ pools: { "5h": { utilization: 0.4, status: "allowed" } }, complete: false });
-    expect(JSON.parse(server.requestsTo("/v1/messages")[0]?.body ?? "")).toMatchObject({ model: "claude-haiku-4-5", max_tokens: 1 });
+    expect(JSON.parse(server().requestsTo("/v1/messages")[0]?.body ?? "")).toMatchObject({ model: "claude-haiku-4-5", max_tokens: 1 });
   });
 
 });

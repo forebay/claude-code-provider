@@ -1,4 +1,9 @@
-import type { RewrittenRequest } from "./rewrite.js";
+/** A request ready to send to the upstream, carrying the account's credentials. */
+export interface UpstreamRequest {
+  readonly url: string;
+  readonly headers: Record<string, string>;
+  readonly body: Uint8Array | string;
+}
 
 /** What one attempt against the upstream produced: a response with its headers, or no response at all. */
 export type Attempt = { kind: "response"; response: Response; headers: Record<string, string> } | { kind: "transport-failed" };
@@ -17,7 +22,7 @@ export function headersOf(response: Response): Record<string, string> {
  * Sends one request to the upstream under `signal`. A transport failure is an answer; a caller's
  * abort is not, and rejects so that nothing is reported for a request nobody is waiting on.
  */
-export async function sendAttempt(request: RewrittenRequest, signal: AbortSignal): Promise<Attempt> {
+export async function sendAttempt(request: UpstreamRequest, signal: AbortSignal): Promise<Attempt> {
   try {
     const response = await fetch(request.url, { method: "POST", headers: request.headers, body: request.body, signal });
     return { kind: "response", response, headers: headersOf(response) };

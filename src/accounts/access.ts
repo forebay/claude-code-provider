@@ -1,5 +1,7 @@
+import { REPORT_OUTCOME } from "../contract.js";
 import { refreshTokens } from "../oauth/refresh.js";
-import { accessSecretName, findAccount, logIfRefused, refreshSecretName, secretsOf } from "./dependencies.js";
+import { reportAttempt } from "../request/report.js";
+import { accessSecretName, findAccount, logIfFailed, refreshSecretName } from "./dependencies.js";
 import type { AccountDependencies } from "./dependencies.js";
 
 const DEFAULT_REFRESH_TIMEOUT_MILLISECONDS = 30000;
@@ -19,46 +21,42 @@ function unusable(reason: string): AccessAnswer {
   return { none: true, reason };
 }
 
-function disable(dependencies: AccountDependencies, id: string, now: number, reason: string): void {
-  try {
-    const answer = dependencies.accounts().report({ store: dependencies.store, id, outcome: "disabled", reason, now });
-    logIfRefused(dependencies, answer, `could not disable ${id}`);
-  } catch (cause) {
-    dependencies.log(`could not disable ${id}: ${cause instanceof Error ? cause.message : String(cause)}`);
-  }
+function disable(dependencies: AccountDependencies, id: string, reason: string): Promise<void> {
+  return reportAttempt(dependencies, id, { outcome: REPORT_OUTCOME.DISABLED, reason });
 }
 
 /** @implNote The refresh token is written before the access token: a rotated one is already spent upstream, so losing it would lose the account. */
 async function storeRefreshed(dependencies: AccountDependencies, id: string, previousRefresh: string, tokens: { access: string; refresh: string; expires: number }): Promise<void> {
-  const secrets = secretsOf(dependencies);
+  const { secrets } = dependencies;
   if (tokens.refresh !== previousRefresh) await secrets.set(refreshSecretName(id), tokens.refresh);
   await secrets.set(accessSecretName(id), tokens.access);
-  logIfRefused(dependencies, dependencies.accounts().upsert({ store: dependencies.store, account: { id, expires: tokens.expires } }), `could not store the new expiry of ${id}`);
+  await logIfFailed(dependencies, `could not store the new expiry of ${id}`, () => dependencies.accounts.upsert({ argument: { store: dependencies.store, account: { id, expires: tokens.expires } } }));
 }
 
 async function refreshed(dependencies: AccountDependencies, id: string, now: number): Promise<AccessAnswer> {
-  const refreshToken = await secretsOf(dependencies).get(refreshSecretName(id));
+  const refreshToken = await dependencies.secrets.get(refreshSecretName(id));
   if (refreshToken === undefined) {
-    disable(dependencies, id, now, `${RE_LOGIN_REQUIRED} (no refresh token is stored)`);
+    await disable(dependencies, id, `${RE_LOGIN_REQUIRED} (no refresh token is stored)`);
     return unusable(RE_LOGIN_REQUIRED);
   }
   const outcome = await refreshTokens({
-    tokenUrl: dependencies.settings().tokenUrl,
+    tokenUrl: (await dependencies.settings()).tokenUrl,
     clientId: dependencies.clientId(),
     refreshToken,
     now,
     signal: AbortSignal.timeout(dependencies.refreshTimeoutMilliseconds ?? DEFAULT_REFRESH_TIMEOUT_MILLISECONDS),
   });
   if (!outcome.ok) {
-    if (outcome.revoked) disable(dependencies, id, now, RE_LOGIN_REQUIRED);
+    if (outcome.revoked) await disable(dependencies, id, RE_LOGIN_REQUIRED);
     return unusable(outcome.revoked ? RE_LOGIN_REQUIRED : outcome.message);
   }
   await storeRefreshed(dependencies, id, refreshToken, outcome.tokens);
   return { access: outcome.tokens.access };
 }
 
-function isExpired(dependencies: AccountDependencies, expires: number | null | undefined, now: number): boolean {
-  return dependencies.accounts().tokenExpired({ ...(typeof expires === "number" ? { expires } : {}), now }).expired !== false;
+async function isExpired(dependencies: AccountDependencies, expires: number | undefined, now: number): Promise<boolean> {
+  const argument = { has_expires: typeof expires === "number" ? 1 : 0, expires: typeof expires === "number" ? expires : 0, now, has_skew_milliseconds: 0, skew_milliseconds: 0 };
+  return (await dependencies.accounts.token_expired({ argument })).expired !== 0;
 }
 
 /**
@@ -89,11 +87,11 @@ export function createTokenAccess(dependencies: AccountDependencies): TokenAcces
 
   async function ensureAccess(id: string, now: number, signal: AbortSignal): Promise<AccessAnswer> {
     signal.throwIfAborted();
-    const account = findAccount(dependencies, id);
+    const account = await findAccount(dependencies, id);
     if (account === undefined) return unusable(`no account ${id}`);
     if (account.enabled === false) return unusable(account.disabledReason ?? "disabled");
-    const access = await secretsOf(dependencies).get(accessSecretName(id));
-    if (access !== undefined && !isExpired(dependencies, account.expires, now)) return { access };
+    const access = await dependencies.secrets.get(accessSecretName(id));
+    if (access !== undefined && !(await isExpired(dependencies, account.expires, now))) return { access };
     return refreshNow(id, now, signal);
   }
 

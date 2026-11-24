@@ -1,7 +1,8 @@
-import type { PluginConfig } from "@weivel/typescript";
 import { CLAUDE_CLIENT_ID, CLIENT_ID_VARIABLE } from "./constants.js";
+import { STRATEGY, type Config } from "./contract.js";
 
 const LOOPBACK_IPV4 = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+const STRATEGIES: Readonly<Record<string, number>> = { sticky: STRATEGY.STICKY, "round-robin": STRATEGY.ROUND_ROBIN, hybrid: STRATEGY.HYBRID };
 
 /**
  * What this plugin's configuration says, under names that read as code.
@@ -13,21 +14,30 @@ const LOOPBACK_IPV4 = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
  * `/v1/messages` rejects with a 403. The host decides this, not the scope.
  */
 export interface ClaudeSettings {
-  authorizeUrl: string;
-  tokenUrl: string;
-  apiBase: string;
-  accountSelectionStrategy: string;
-  logging: boolean;
-  maxAccountAttempts: number;
-  defaultCooldownSeconds: number;
-  maxCooldownSeconds: number;
+  readonly authorizeUrl: string;
+  readonly tokenUrl: string;
+  readonly apiBase: string;
+  /** A forebay_accounts_strategy. */
+  readonly strategy: number;
+  readonly logging: boolean;
+  readonly maxAccountAttempts: number;
+  readonly defaultCooldownSeconds: number;
+  readonly maxCooldownSeconds: number;
+  /** The start of every model id this provider offers. */
+  readonly modelPrefix: string;
+  /** The context window of a model the upstream names none for. */
+  readonly defaultContext: number;
+  /** The output limit of a model the upstream names none for. */
+  readonly defaultOutput: number;
 }
 
-function required<T>(config: PluginConfig, key: string, type: "string" | "number" | "boolean"): T {
-  const value = config.get<unknown>(key);
-  if (value === undefined) throw new Error(`the ${key} setting is missing from claude-code-provider's configuration`);
-  if (typeof value !== type) throw new Error(`the ${key} setting of claude-code-provider must be a ${type}`);
-  return value as T;
+type SettingType = "string" | "number" | "boolean";
+
+async function required<Value>(config: Config, key: string, type: SettingType): Promise<Value> {
+  const answer = await config.get_tree({ key });
+  if (answer === undefined || typeof answer === "symbol") throw new Error(`the ${key} setting is missing from claude-code-provider's configuration`);
+  if (typeof answer !== type) throw new Error(`the ${key} setting of claude-code-provider must be a ${type}`);
+  return answer as Value;
 }
 
 function isLoopbackHost(hostname: string): boolean {
@@ -43,23 +53,39 @@ function isSafeForTokens(text: string): boolean {
   }
 }
 
-function tokenBearingUrl(config: PluginConfig, key: string): string {
-  const value = required<string>(config, key, "string");
+async function tokenBearingUrl(config: Config, key: string): Promise<string> {
+  const value = await required<string>(config, key, "string");
   if (!isSafeForTokens(value)) throw new Error(`the ${key} setting of claude-code-provider must be an https url, or http on a loopback address, because account tokens are sent to it`);
   return value;
 }
 
+async function strategyOf(config: Config): Promise<number> {
+  const name = await required<string>(config, "account_selection_strategy", "string");
+  const strategy = STRATEGIES[name];
+  if (strategy === undefined) throw new Error(`the account_selection_strategy setting of claude-code-provider must be one of ${Object.keys(STRATEGIES).join(", ")}, not ${name}`);
+  return strategy;
+}
+
+async function positiveCount(config: Config, key: string): Promise<number> {
+  const value = await required<number>(config, key, "number");
+  if (!Number.isInteger(value) || value < 1) throw new Error(`the ${key} setting of claude-code-provider must be a whole number of at least 1`);
+  return value;
+}
+
 /** Reads every setting afresh, so a change made while the host runs applies to the next call. */
-export function readSettings(config: PluginConfig): ClaudeSettings {
+export async function readSettings(config: Config): Promise<ClaudeSettings> {
   return {
-    authorizeUrl: required(config, "oauth_authorize_url", "string"),
-    tokenUrl: tokenBearingUrl(config, "oauth_token_url"),
-    apiBase: tokenBearingUrl(config, "api_base_url").replace(/\/+$/, ""),
-    accountSelectionStrategy: required(config, "account_selection_strategy", "string"),
-    logging: required(config, "logging", "boolean"),
-    maxAccountAttempts: required(config, "max_account_attempts", "number"),
-    defaultCooldownSeconds: required(config, "default_cooldown_seconds", "number"),
-    maxCooldownSeconds: required(config, "max_cooldown_seconds", "number"),
+    authorizeUrl: await required(config, "oauth_authorize_url", "string"),
+    tokenUrl: await tokenBearingUrl(config, "oauth_token_url"),
+    apiBase: (await tokenBearingUrl(config, "api_base_url")).replace(/\/+$/, ""),
+    strategy: await strategyOf(config),
+    logging: await required(config, "logging", "boolean"),
+    maxAccountAttempts: await required(config, "max_account_attempts", "number"),
+    defaultCooldownSeconds: await required(config, "default_cooldown_seconds", "number"),
+    maxCooldownSeconds: await required(config, "max_cooldown_seconds", "number"),
+    modelPrefix: await required(config, "model_prefix", "string"),
+    defaultContext: await positiveCount(config, "default_context"),
+    defaultOutput: await positiveCount(config, "default_output"),
   };
 }
 

@@ -1,6 +1,7 @@
 {
-  "id": "claude-code-provider",
   "api": 1,
+  "importName": "claude-code-provider",
+  "id": "claude-code-provider",
   "version": "2.12.5",
   "entry": "dist/plugin.js",
   "bundle": {
@@ -8,21 +9,29 @@
   },
   "displayName": "Claude Code",
   "icon": "icon.svg",
-  "capabilities": [
-    "provider"
-  ],
+  "capabilities": {
+    "provides": [],
+    "consumes": []
+  },
   "services": {
     "provides": [
       "claude-code-provider:accounts"
     ],
     "consumes": [
-      "accounts"
+      "accounts",
+      "weivel.config",
+      "weivel.secrets",
+      "weivel.paths",
+      "weivel.log"
     ]
   },
   "actions": {
     "login": {
       "label": "Sign in to Claude",
-      "call": { "service": "claude-code-provider:accounts", "method": "login" },
+      "call": {
+        "service": "claude-code-provider:accounts",
+        "method": "login"
+      },
       "input": {
         "code": {
           "type": "text",
@@ -33,29 +42,43 @@
     },
     "accounts": {
       "label": "List accounts",
-      "call": { "service": "claude-code-provider:accounts", "method": "list" }
+      "call": {
+        "service": "claude-code-provider:accounts",
+        "method": "list"
+      }
     },
     "verify": {
       "label": "Verify access",
-      "call": { "service": "claude-code-provider:accounts", "method": "verify" }
+      "call": {
+        "service": "claude-code-provider:accounts",
+        "method": "verify"
+      }
     },
     "refresh": {
       "label": "Refresh token",
-      "call": { "service": "claude-code-provider:accounts", "method": "refresh" }
+      "call": {
+        "service": "claude-code-provider:accounts",
+        "method": "refresh"
+      }
     },
     "quota": {
       "label": "Refresh quota",
-      "call": { "service": "claude-code-provider:accounts", "method": "quota" }
+      "call": {
+        "service": "claude-code-provider:accounts",
+        "method": "quota"
+      }
     },
     "remove": {
       "label": "Remove account",
       "confirm": "Remove this account and its tokens?",
       "tone": "danger",
-      "call": { "service": "claude-code-provider:accounts", "method": "remove" }
+      "call": {
+        "service": "claude-code-provider:accounts",
+        "method": "remove"
+      }
     }
   },
   "config": {
-    "name": "claude-code",
     "defaults": {
       "logging": true,
       "max_account_attempts": 4,
@@ -64,9 +87,26 @@
       "max_cooldown_seconds": 900,
       "oauth_authorize_url": "https://claude.ai/oauth/authorize",
       "oauth_token_url": "https://platform.claude.com/v1/oauth/token",
-      "api_base_url": "https://api.anthropic.com"
+      "api_base_url": "https://api.anthropic.com",
+      "model_prefix": "claude-",
+      "default_context": 200000,
+      "default_output": 64000
     }
   },
+  "access": [
+    {
+      "kind": "network",
+      "target": "setting:oauth_token_url",
+      "mode": "connect",
+      "why": "signing in and refreshing an account's tokens"
+    },
+    {
+      "kind": "network",
+      "target": "setting:api_base_url",
+      "mode": "connect",
+      "why": "requests, model lists, quota and verification go to the Anthropic API"
+    }
+  ],
   "repo": {
     "role": "Claude Code (Anthropic) provider",
     "category": "ai-provider",
