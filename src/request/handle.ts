@@ -76,17 +76,8 @@ async function unavailable(dependencies: RequestDependencies, acquired: AcquireA
   return failed(dependencies, await ownFailure(dependencies, UNAVAILABLE_STATUS, retryAfter === undefined ? NO_ACCOUNT_MESSAGE : ALL_COOLING_MESSAGE, retryAfter));
 }
 
-/**
- * Builds the `handle` of the plugin: up to `max_account_attempts` turns, each taking an account from the `accounts`
- * service, getting its access token, sending one request and reporting what happened to that account.
- *
- * @remarks A 429 or 529 rotates, reporting the reset `anthropic` reads from the response, else only its attempt, which
- * the accounts service backs the account off by. A 401 rotates, a 403 disables the account, any other status is the
- * answer as the upstream gave it. No account that can serve, or accounts that are all cooling, is a 503, saying when
- * to retry where that is known, and running out of turns answers the last real upstream failure, else a 502. A
- * refused `acquire` answers THROWN with its cause, and a cancelled call answers THROWN and reports nothing.
- */
-export function createHandle(dependencies: RequestDependencies, access: TokenAccess): (argument: HandleArgument, upstream: AbortController) => Promise<HandleAnswer> {
+/** The turns of one request, every one of them reading `dependencies`. */
+function requestServer(dependencies: RequestDependencies, access: TokenAccess): (argument: HandleArgument, upstream: AbortController) => Promise<HandleAnswer> {
   async function ensured(id: string, signal: AbortSignal): Promise<AccessAnswer> {
     try {
       return await access.ensureAccess(id, dependencies.clock(), signal);
@@ -148,9 +139,29 @@ export function createHandle(dependencies: RequestDependencies, access: TokenAcc
     return failed(dependencies, last ?? (await ownFailure(dependencies, BAD_GATEWAY_STATUS, `Claude request failed after ${turns} attempts`)));
   }
 
+  return served;
+}
+
+/** `dependencies` with its settings read at the first ask and that reading answered for the rest of one request. */
+function readingSettingsOnce(dependencies: RequestDependencies): RequestDependencies {
+  let settings: ReturnType<RequestDependencies["settings"]> | undefined;
+  return { ...dependencies, settings: () => (settings ??= dependencies.settings()) };
+}
+
+/**
+ * Builds the `handle` of the plugin: up to `max_account_attempts` turns, each taking an account from the `accounts`
+ * service, getting its access token, sending one request and reporting what happened to that account.
+ *
+ * @remarks A 429 or 529 rotates, reporting the reset `anthropic` reads from the response, else only its attempt, which
+ * the accounts service backs the account off by. A 401 rotates, a 403 disables the account, any other status is the
+ * answer as the upstream gave it. No account that can serve, or accounts that are all cooling, is a 503, saying when
+ * to retry where that is known, and running out of turns answers the last real upstream failure, else a 502. A
+ * refused `acquire` answers THROWN with its cause, and a cancelled call answers THROWN and reports nothing.
+ */
+export function createHandle(dependencies: RequestDependencies, access: TokenAccess): (argument: HandleArgument, upstream: AbortController) => Promise<HandleAnswer> {
   return async (argument, upstream) => {
     try {
-      return await served(argument, upstream);
+      return await requestServer(readingSettingsOnce(dependencies), access)(argument, upstream);
     } catch (cause) {
       if (upstream.signal.aborted) return { kind: dependencies.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_THROWN, message: "claude-code-provider's call was cancelled before it was served" };
       return { kind: dependencies.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_THROWN, message: `claude-code-provider could not serve the request: ${messageOf(cause)}` };

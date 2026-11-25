@@ -92,6 +92,36 @@ describe("the request path over the real accounts and anthropic services", () =>
     expect(answer.failure?.headers).toContainEqual({ name: "x-turn", value: "2" });
   }, RUN_BOUND);
 
+  it("reads its settings once for a request, however many turns and reports it makes", async () => {
+    const current = world();
+    await seeded(current, "a", "b", "c");
+    repliesInTurn(current, [rateLimited(429), rateLimited(429), ok()]);
+    let reads = 0;
+    const counting = { ...current.dependencies, settings: () => (reads++, current.dependencies.settings()) };
+
+    const answer = await served(current, new AbortController(), counting);
+
+    expect(answer.kind).toBe(current.enums.provider.forebay_provider_handle_kind.FOREBAY_PROVIDER_HANDLE_RESPONSE);
+    expect(current.server.requestsTo("/v1/messages")).toHaveLength(3);
+    expect(reads).toBe(1);
+  }, RUN_BOUND);
+
+  it("reads the settings afresh for the next request", async () => {
+    const current = world();
+    await seeded(current, "a", "b");
+    const handle = handleIn(current);
+    const call = () => handle({ request: requestOf(current), headers: [], token: 1n }, new AbortController());
+
+    await call();
+    current.settings.max_account_attempts = 1;
+    current.server.messagesResponder = () => dropped;
+    current.server.requests.length = 0;
+    const answer = await call();
+
+    expect(current.server.requestsTo("/v1/messages")).toHaveLength(1);
+    expect(JSON.parse(answer.failure!.body)).toMatchObject({ error: { message: "Claude request failed after 1 attempts" } });
+  }, RUN_BOUND);
+
   it("answers a 502 when every turn failed without an upstream answer", async () => {
     const current = world();
     await seeded(current, "a", "b");
