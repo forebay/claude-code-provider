@@ -4,6 +4,7 @@ import { createTokenAccess } from "./access.js";
 
 const world = useWorld();
 const HOUR = 3_600_000;
+const SLOW_REFRESH = 3_000;
 const READ_ONLY = "accounts.upsert answered refused: the store is read only (make it writable)";
 
 function refusing(): never {
@@ -100,6 +101,23 @@ describe("ensureAccess", () => {
     const access = createTokenAccess(world().dependencies);
     const answers = await Promise.all([access.ensureAccess("a", NOW, NEVER_ABORTED), access.ensureAccess("a", NOW, NEVER_ABORTED)]);
     expect(answers).toEqual([{ access: "once" }, { access: "once" }]);
+    expect(world().server.requestsTo("/v1/oauth/token")).toHaveLength(1);
+  }, RUN_BOUND);
+
+  it("stops a cancelled caller's wait on a shared refresh at once, while the refresh still serves the other", async () => {
+    await seedAccount(world(), "a", NOW - 1);
+    world().server.tokenResponder = () => ({ status: 200, body: { access_token: "once", refresh_token: "rotated" }, delayMilliseconds: SLOW_REFRESH });
+    const access = createTokenAccess(world().dependencies);
+    const aborter = new AbortController();
+    const began = Date.now();
+
+    const cancelled = access.ensureAccess("a", NOW, aborter.signal);
+    const kept = access.ensureAccess("a", NOW, NEVER_ABORTED);
+    setTimeout(() => aborter.abort(new Error("client went away")), 50);
+
+    await expect(cancelled).rejects.toThrow("client went away");
+    expect(Date.now() - began).toBeLessThan(SLOW_REFRESH / 2);
+    expect(await kept).toEqual({ access: "once" });
     expect(world().server.requestsTo("/v1/oauth/token")).toHaveLength(1);
   }, RUN_BOUND);
 

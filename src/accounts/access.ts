@@ -58,6 +58,15 @@ async function isExpired(dependencies: AccountDependencies, expires: number | un
   return (await dependencies.accounts.token_expired({ argument })).expired !== 0;
 }
 
+/** What `shared` settles to, or `signal`'s reason as soon as it aborts, leaving `shared` running for its other waiters. */
+function untilAborted<Value>(shared: Promise<Value>, signal: AbortSignal): Promise<Value> {
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    shared.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
 /**
  * Builds the token access of the plugin.
  *
@@ -78,10 +87,7 @@ export function createTokenAccess(dependencies: AccountDependencies): TokenAcces
     signal.throwIfAborted();
     const running = inFlight.get(id) ?? refreshed(dependencies, id, now).finally(() => inFlight.delete(id));
     inFlight.set(id, running);
-    return running.then((answer) => {
-      signal.throwIfAborted();
-      return answer;
-    });
+    return untilAborted(running, signal);
   }
 
   async function ensureAccess(id: string, now: number, signal: AbortSignal): Promise<AccessAnswer> {
