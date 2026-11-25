@@ -46,6 +46,22 @@ describe("readSettings", () => {
   });
 });
 
+describe.each(["max_account_attempts", "default_cooldown_seconds", "max_cooldown_seconds"])("the %s setting, which a request turns into attempts or a backoff", (key) => {
+  it.each([0, -1, 2.5])("refuses %s, which would leave a request no attempt or an account no backoff", async (value) => {
+    await expect(readSettings(configOf({ ...MANIFEST_DEFAULTS, [key]: value }), ACCOUNTS)).rejects.toThrow(new RegExp(`${key} setting of claude-code-provider must be a whole number of at least 1`));
+  });
+});
+
+describe("the cooldowns", () => {
+  it("refuses a longest cooldown shorter than the first", async () => {
+    await expect(readSettings(configOf({ ...MANIFEST_DEFAULTS, default_cooldown_seconds: 60, max_cooldown_seconds: 30 }), ACCOUNTS)).rejects.toThrow(/max_cooldown_seconds setting of claude-code-provider must be at least its default_cooldown_seconds, 60/);
+  });
+
+  it("accepts a longest cooldown equal to the first", async () => {
+    expect(await readSettings(configOf({ ...MANIFEST_DEFAULTS, default_cooldown_seconds: 60, max_cooldown_seconds: 60 }), ACCOUNTS)).toMatchObject({ defaultCooldownSeconds: 60, maxCooldownSeconds: 60 });
+  });
+});
+
 describe.each(["oauth_token_url", "api_base_url"])("the %s setting, which receives account tokens", (key) => {
   it.each(["https://example.test/token", "http://localhost:1", "http://127.0.0.1:1", "http://127.9.9.9:1", "http://[::1]:1"])("accepts %s", async (url) => {
     await expect(readSettings(configOf({ ...MANIFEST_DEFAULTS, [key]: url }), ACCOUNTS)).resolves.toBeDefined();

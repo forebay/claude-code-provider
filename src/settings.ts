@@ -76,6 +76,14 @@ async function positiveCount(config: Config, key: string): Promise<number> {
   return value;
 }
 
+/** The two cooldowns, each a whole number of seconds of at least 1, the longest no shorter than the first. */
+async function cooldowns(config: Config): Promise<{ defaultCooldownSeconds: number; maxCooldownSeconds: number }> {
+  const defaultCooldownSeconds = await positiveCount(config, "default_cooldown_seconds");
+  const maxCooldownSeconds = await positiveCount(config, "max_cooldown_seconds");
+  if (maxCooldownSeconds < defaultCooldownSeconds) throw new Error(`the max_cooldown_seconds setting of claude-code-provider must be at least its default_cooldown_seconds, ${defaultCooldownSeconds}`);
+  return { defaultCooldownSeconds, maxCooldownSeconds };
+}
+
 /** Reads every setting afresh, so a change made while the host runs applies to the next call. */
 export async function readSettings(config: Config, enums: AccountsEnums): Promise<ClaudeSettings> {
   return {
@@ -84,9 +92,8 @@ export async function readSettings(config: Config, enums: AccountsEnums): Promis
     apiBase: (await tokenBearingUrl(config, "api_base_url")).replace(/\/+$/, ""),
     strategy: await strategyOf(config, strategiesOf(enums.forebay_accounts_strategy)),
     logging: await required(config, "logging", "boolean"),
-    maxAccountAttempts: await required(config, "max_account_attempts", "number"),
-    defaultCooldownSeconds: await required(config, "default_cooldown_seconds", "number"),
-    maxCooldownSeconds: await required(config, "max_cooldown_seconds", "number"),
+    maxAccountAttempts: await positiveCount(config, "max_account_attempts"),
+    ...(await cooldowns(config)),
     modelPrefix: await required(config, "model_prefix", "string"),
     defaultContext: await positiveCount(config, "default_context"),
     defaultOutput: await positiveCount(config, "default_output"),
