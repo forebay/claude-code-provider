@@ -91,23 +91,24 @@ export interface World {
  * must be as they were before it.
  */
 export function useWorld(): () => World {
-  const realBefore = realPlacesSnapshot();
+  let realBefore: readonly string[];
   let bundles: string;
   let home: Home;
   let host: RunningHost;
   let folder: string;
   let current: World | undefined;
   beforeAll(async () => {
+    realBefore = await realPlacesSnapshot();
     bundles = mkdtempSync(join(tmpdir(), "claude-code-provider-bundles-"));
     const consumer = await bundled(join(REPOSITORY, "test", "fixtures", "consumer", "index.ts"), join(bundles, "consumer"));
-    home = homeWith([consumerInstall(consumer)]);
+    home = await homeWith([consumerInstall(consumer)]);
     host = await hostIn(home);
   }, RUN_BOUND);
   afterAll(async () => {
     await host?.stop();
     home?.remove();
     rmSync(bundles, { recursive: true, force: true });
-    expect(realPlacesSnapshot()).toEqual(realBefore);
+    expect(await realPlacesSnapshot()).toEqual(realBefore);
   });
   beforeEach(async () => {
     const accounts = host.service<Accounts>("consumer", "consumer:accounts");

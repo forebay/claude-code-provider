@@ -8,7 +8,7 @@ import { bundled, homeWith, hostIn, providerInstall, realPlacesSnapshot, REPOSIT
 import { GRANTED_TOKENS, startOauthServer, successfulGrants, type OauthServer, type RecordedRequest, type Reply } from "./fixtures/oauth-server.js";
 import { consumerInstall, RUN_BOUND, settingsFor } from "./world.js";
 
-const realBefore = realPlacesSnapshot();
+const realBefore = await realPlacesSnapshot();
 const PROVIDER = "claude-code-provider";
 const ACTIONS = "claude-code-provider:accounts";
 
@@ -28,8 +28,8 @@ let server: OauthServer;
 const homes: Home[] = [];
 const hosts: RunningHost[] = [];
 
-function home(): Home {
-  const made = homeWith([providerInstall(providerBundle, settingsFor(server)), consumerInstall(consumerBundle)]);
+async function home(): Promise<Home> {
+  const made = await homeWith([providerInstall(providerBundle, settingsFor(server)), consumerInstall(consumerBundle)]);
   homes.push(made);
   return made;
 }
@@ -109,7 +109,7 @@ afterAll(() => rmSync(bundles, { recursive: true, force: true }));
 
 describe("claude-code-provider's accounts under the host program, over runtime in a temporary home", () => {
   it("logs an account in, keeping its tokens in the host's secrets and the account in the store with no token", async () => {
-    const made = home();
+    const made = await home();
     const actions = actionsOf(await serving(made));
 
     const id = await loggedIn(actions);
@@ -124,7 +124,7 @@ describe("claude-code-provider's accounts under the host program, over runtime i
   }, RUN_BOUND);
 
   it("refreshes an expired access token before using it, and keeps the new one", async () => {
-    const actions = actionsOf(await serving(home()));
+    const actions = actionsOf(await serving(await home()));
     const id = await loggedIn(actions, "me@example.com", 1);
 
     await actions.verify({ item: id });
@@ -135,7 +135,7 @@ describe("claude-code-provider's accounts under the host program, over runtime i
   }, RUN_BOUND);
 
   it("reports an account whose refresh fails as needing a login, and acquire then gives the next", async () => {
-    const made = home();
+    const made = await home();
     const host = await serving(made);
     const actions = actionsOf(host);
     const first = await loggedIn(actions, "first@example.com");
@@ -151,7 +151,7 @@ describe("claude-code-provider's accounts under the host program, over runtime i
   }, RUN_BOUND);
 
   it("removes an account with its tokens", async () => {
-    const made = home();
+    const made = await home();
     const host = await serving(made);
     const actions = actionsOf(host);
     const id = await loggedIn(actions);
@@ -167,7 +167,7 @@ describe("claude-code-provider's accounts under the host program, over runtime i
   }, RUN_BOUND);
 
   it("runs each action through the program's ACTION mode", async () => {
-    const made = home();
+    const made = await home();
     const host = await serving(made);
     const id = await loggedIn(actionsOf(host));
     server.usageResponder = () => ({ status: 200, body: { limits: [{ kind: "session", percent: 25 }] } });
@@ -191,7 +191,7 @@ describe("claude-code-provider's accounts under the host program, over runtime i
     expect(JSON.parse(readFileSync(storeIn(made), "utf8"))).toMatchObject({ accounts: [] });
   }, RUN_BOUND);
 
-  it("left the real home's places as they were", () => {
-    expect(realPlacesSnapshot()).toEqual(realBefore);
+  it("left the real home's places as they were", async () => {
+    expect(await realPlacesSnapshot()).toEqual(realBefore);
   });
 });

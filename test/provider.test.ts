@@ -8,7 +8,7 @@ import { bundled, homeWith, hostIn, providerInstall, realPlacesSnapshot, REPOSIT
 import { GRANTED_TOKENS, startOauthServer, successfulGrants, type OauthServer, type Reply } from "./fixtures/oauth-server.js";
 import { consumerInstall, RUN_BOUND, settingsFor } from "./world.js";
 
-const realBefore = realPlacesSnapshot();
+const realBefore = await realPlacesSnapshot();
 const PROVIDER = "claude-code-provider";
 const IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude.";
 const LONG_WAIT = 30_000;
@@ -69,7 +69,7 @@ const homes: Home[] = [];
 const hosts: RunningHost[] = [];
 
 async function started(settings: Record<string, unknown> = {}): Promise<Running> {
-  const home = homeWith([providerInstall(providerBundle, { ...settingsFor(server), ...settings }), consumerInstall(consumerBundle)]);
+  const home = await homeWith([providerInstall(providerBundle, { ...settingsFor(server), ...settings }), consumerInstall(consumerBundle)]);
   homes.push(home);
   const host = await hostIn(home);
   hosts.push(host);
@@ -288,7 +288,7 @@ describe("claude-code-provider's forebay.provider under the host program, over r
     expect(JSON.parse(answer.failure!.body)).toMatchObject({ type: "error", error: { type: "api_error", message: expect.stringContaining("all rate-limited") } });
   }, RUN_BOUND);
 
-  it("left the real home's places as they were", () => {
-    expect(realPlacesSnapshot()).toEqual(realBefore);
+  it("left the real home's places as they were", async () => {
+    expect(await realPlacesSnapshot()).toEqual(realBefore);
   });
 });
