@@ -7,7 +7,7 @@ import type { AccountDependencies } from "../src/accounts/dependencies.js";
 import type { TextSecrets } from "../src/accounts/secrets.js";
 import type { Accounts, Anthropic, Enums, IrRequest, Pair, StoredAccount } from "../src/contract.js";
 import { readSettings } from "../src/settings.js";
-import { bundled, homeWith, hostIn, realPlacesSnapshot, REPOSITORY, type Home, type Install } from "./fixtures/home.js";
+import { bundled, homeWith, hostIn, LANGUAGE, realPlacesSnapshot, REPOSITORY, type Home, type Install } from "./fixtures/home.js";
 import { startOauthServer, type OauthServer } from "./fixtures/oauth-server.js";
 
 export const NOW = 1_700_000_000_000;
@@ -56,6 +56,7 @@ export function consumerInstall(bundle: string): Install {
     importName: "consumer",
     id: "consumer",
     version: "1.0.0",
+    language: LANGUAGE,
     entry: "index.js",
     capabilities: { provides: [], consumes: ["forebay.provider"] },
     services: { provides: ["consumer:accounts", "consumer:anthropic", "consumer:enums", "consumer:calls"], consumes: ["accounts", "anthropic"] },
